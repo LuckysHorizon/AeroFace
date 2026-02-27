@@ -14,7 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+import { File as ExpoFile } from 'expo-file-system';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
@@ -170,9 +170,8 @@ export default function BoardingPassScreen() {
         setError(null);
 
         // Read file as base64
-        const base64 = await FileSystem.readAsStringAsync(asset.uri, {
-          encoding: 'base64',
-        });
+        const file = new ExpoFile(asset.uri);
+        const base64 = await file.base64();
 
         if (base64) {
           scanBoardingPass(base64, true);
