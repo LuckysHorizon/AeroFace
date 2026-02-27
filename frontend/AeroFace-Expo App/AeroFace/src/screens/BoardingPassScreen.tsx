@@ -13,6 +13,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
@@ -145,7 +147,7 @@ export default function BoardingPassScreen() {
 
         // Auto-scan immediately
         if (asset.base64) {
-          scanBoardingPass(asset.base64);
+          scanBoardingPass(asset.base64, false);
         }
       }
     } catch (e: any) {
@@ -154,8 +156,38 @@ export default function BoardingPassScreen() {
     }
   }
 
+  // ── Pick PDF ─────────────────────────────────────────────────
+  async function pickPdf() {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/pdf',
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets?.[0]) {
+        const asset = result.assets[0];
+        setImageUri(null); // PDFs don't have image preview
+        setError(null);
+
+        // Read file as base64
+        const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+          encoding: 'base64',
+        });
+
+        if (base64) {
+          scanBoardingPass(base64, true);
+        } else {
+          setError('Could not read PDF file');
+        }
+      }
+    } catch (e: any) {
+      console.error('[pickPdf]', e);
+      Alert.alert('Error', 'Could not read the PDF file');
+    }
+  }
+
   // ── Scan Boarding Pass ───────────────────────────────────────
-  async function scanBoardingPass(base64: string) {
+  async function scanBoardingPass(base64: string, isPdf: boolean = false) {
     setStep('scanning');
     setScanning(true);
     setError(null);
@@ -166,6 +198,10 @@ export default function BoardingPassScreen() {
         throw new Error('Please sign in to scan boarding passes');
       }
 
+      const payload = isPdf
+        ? { pdf_base64: base64 }
+        : { image_base64: base64 };
+
       const res = await fetch(EDGE_FN, {
         method: 'POST',
         headers: {
@@ -173,7 +209,7 @@ export default function BoardingPassScreen() {
           Authorization: 'Bearer ' + token,
           apikey: SUPABASE_ANON_KEY,
         },
-        body: JSON.stringify({ image_base64: base64 }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
@@ -241,7 +277,7 @@ export default function BoardingPassScreen() {
               </View>
               <Text style={s.uploadTitle}>Scan Boarding Pass</Text>
               <Text style={s.uploadSubtitle}>
-                Take a photo or upload from gallery to extract flight details
+                Take a photo, upload from gallery, or select a PDF to extract flight details
               </Text>
             </View>
           )}
@@ -258,6 +294,12 @@ export default function BoardingPassScreen() {
             <Text style={[s.uploadBtnText, s.uploadBtnTextSecondary]}>Gallery</Text>
           </Pressable>
         </View>
+
+        {/* PDF Upload */}
+        <Pressable style={s.pdfBtn} onPress={pickPdf}>
+          <Ionicons name="document-text-outline" size={20} color="#2563EB" />
+          <Text style={s.pdfBtnText}>Upload PDF Boarding Pass</Text>
+        </Pressable>
 
         {/* Error */}
         {error && (
@@ -291,6 +333,11 @@ export default function BoardingPassScreen() {
       <View style={s.scanningContainer}>
         {imageUri && (
           <Image source={{ uri: imageUri }} style={s.scanningImage} resizeMode="contain" />
+        )}
+        {!imageUri && (
+          <View style={s.pdfScanIconWrap}>
+            <Ionicons name="document-text-outline" size={56} color="#2563EB" />
+          </View>
         )}
         <View style={s.scanningOverlay}>
           <ActivityIndicator size="large" color="#2563EB" />
@@ -632,6 +679,29 @@ const s = StyleSheet.create({
     color: '#2563EB',
   },
 
+  // PDF Upload
+  pdfBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 13,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 16,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4 },
+      android: { elevation: 1 },
+    }),
+  },
+  pdfBtnText: {
+    fontFamily: 'SpaceGrotesk_500Medium',
+    fontSize: 14,
+    color: '#2563EB',
+  },
+
   // Error
   errorBox: {
     flexDirection: 'row',
@@ -663,6 +733,17 @@ const s = StyleSheet.create({
     borderRadius: 16,
     marginBottom: 24,
     opacity: 0.6,
+  },
+  pdfScanIconWrap: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
   },
   scanningOverlay: {
     alignItems: 'center',
