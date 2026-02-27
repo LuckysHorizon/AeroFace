@@ -1,2 +1,49 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.log
+*.env
+.env.*
+
+# Virtual environments
 venv/
-.env
+ENV/
+.env/
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# VS Code
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Model files
+*.h5
+*.pt
+*.onnx
+*.pb
+
+# Media
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.gif
+*.mp4
+*.avi
+*.mov
+
+# Misc
+*.bak
+*.swp
+*.tmp
+
+# Node
+node_modules/

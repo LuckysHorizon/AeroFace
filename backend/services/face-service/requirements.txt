@@ -1,3 +1,6 @@
+# Face detection and embeddings
+face_recognition
+opencv-python
 # =====================
 # Python virtual envs
 # =====================
