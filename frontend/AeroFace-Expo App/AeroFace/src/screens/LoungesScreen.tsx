@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { LinearGradient } from 'expo-linear-gradient';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -11,16 +10,24 @@ import {
   Modal,
   FlatList,
   Platform,
+  Image,
+  Dimensions,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
 
-// ── Types ────────────────────────────────────────────────────────
+const { width: SCREEN_W } = Dimensions.get('window');
+
+// ═══════════════════════════════════════════════════════════════════
+//  Types
+// ═══════════════════════════════════════════════════════════════════
+
 interface Airport {
   code: string;
   city: string;
   state: string;
+  name: string;
   label: string;
   loungeCount: number;
   distance: number | null;
@@ -36,377 +43,436 @@ interface Lounge {
   longitude: number;
   address: string;
   rating: number;
+  user_ratings_total: number;
   google_place_id: string;
   distance: number;
-  opening_hours?: string;
-  access_info?: string;
-  image_url?: string;
-  amenities?: string[];
+  opening_hours: string;
+  is_open: boolean | null;
+  access_info: string;
+  photo_url: string | null;
+  photo_ref: string | null;
+  amenities: string[];
+  phone?: string | null;
+  website?: string | null;
+  maps_url?: string | null;
+  description?: string | null;
+  top_review?: string | null;
+  price_level?: number | null;
+  business_status?: string;
 }
+
+// ═══════════════════════════════════════════════════════════════════
+//  Constants
+// ═══════════════════════════════════════════════════════════════════
 
 const SUPABASE_URL = 'https://fksgblzszxwmoqbmzbsj.supabase.co';
 const SUPABASE_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZrc2dibHpzenh3bW9xYm16YnNqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNzY5NjksImV4cCI6MjA4Nzc1Mjk2OX0.aAh2Tj8CMiTjXpawt4afEA6YTCQevCV9SFhKJPlNZ-I';
+const EDGE_FN = SUPABASE_URL + '/functions/v1/fetch-lounges';
+
+const PLACEHOLDER_IMG = 'https://images.unsplash.com/photo-1540339832862-474599807836?w=800&q=80';
+
+// ═══════════════════════════════════════════════════════════════════
+//  Component
+// ═══════════════════════════════════════════════════════════════════
 
 export default function LoungesScreen() {
   const [lounges, setLounges] = useState<Lounge[]>([]);
   const [airports, setAirports] = useState<Airport[]>([]);
   const [selectedAirport, setSelectedAirport] = useState<string | null>(null);
-  const [airportCity, setAirportCity] = useState<string>('');
-  const [loading, setLoading] = useState(false);
+  const [airportCity, setAirportCity] = useState('');
+  const [airportName, setAirportName] = useState('');
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
-  const [userCoords, setUserCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [dataSource, setDataSource] = useState<string>('');
+  const [expandedCard, setExpandedCard] = useState<string | null>(null);
 
+  // ── Init ─────────────────────────────────────────────────────
   useEffect(() => {
     initAndFetch();
   }, []);
 
-  // ── Location + Initial Fetch ──────────────────────────────────
-  const initAndFetch = async () => {
+  async function initAndFetch() {
     setLoading(true);
     setError(null);
-
-    let latitude: number | null = null;
-    let longitude: number | null = null;
-
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
-        const loc = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        latitude = loc.coords.latitude;
-        longitude = loc.coords.longitude;
-        setUserCoords({ latitude, longitude });
-        console.log(`📍 User location: ${latitude}, ${longitude}`);
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const coords = { lat: loc.coords.latitude, lng: loc.coords.longitude };
+        setUserCoords(coords);
+        await fetchLounges(coords.lat, coords.lng);
+      } else {
+        await fetchLounges(null, null);
       }
-    } catch (e) {
-      console.log('Location unavailable, using default');
+    } catch (e: any) {
+      console.error('[init]', e);
+      await fetchLounges(null, null);
     }
+  }
 
-    await fetchLounges(latitude, longitude, null);
-  };
-
-  // ── Fetch Lounges from Edge Function ──────────────────────────
-  const fetchLounges = async (
-    latitude: number | null,
-    longitude: number | null,
-    airportCode: string | null
-  ) => {
+  // ── Fetch ────────────────────────────────────────────────────
+  async function fetchLounges(lat: number | null, lng: number | null, airportCode?: string) {
     try {
       setLoading(true);
       setError(null);
 
       const body: any = {};
-      if (latitude && longitude) {
-        body.latitude = latitude;
-        body.longitude = longitude;
-      }
-      if (airportCode) {
-        body.airport_code = airportCode;
-      }
+      if (lat != null && lng != null) { body.latitude = lat; body.longitude = lng; }
+      if (airportCode) body.airport_code = airportCode;
 
-      console.log('📡 Fetching lounges:', JSON.stringify(body));
-
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/fetch-lounges`, {
+      const res = await fetch(EDGE_FN, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
           apikey: SUPABASE_ANON_KEY,
         },
         body: JSON.stringify(body),
       });
 
-      if (!response.ok) {
-        const errText = await response.text();
-        console.error('❌ Error:', response.status, errText);
-        throw new Error(`Server error (${response.status})`);
+      if (!res.ok) throw new Error('Server error (' + res.status + ')');
+      const data = await res.json();
+
+      if (data.success) {
+        setLounges(data.lounges || []);
+        setAirports(data.airports || []);
+        setSelectedAirport(data.selected_airport || null);
+        setAirportCity(data.airport_city || '');
+        setAirportName(data.airport_name || '');
+        setDataSource(data.source || 'mock_data');
+      } else {
+        throw new Error(data.error || 'Failed to load lounges');
       }
-
-      const data = await response.json();
-      console.log(`✅ Got ${data.lounges?.length} lounges for ${data.selected_airport}`);
-
-      setLounges(data.lounges || []);
-      setAirports(data.airports || []);
-      setSelectedAirport(data.selected_airport || null);
-      setAirportCity(data.airport_city || '');
-    } catch (err) {
-      console.error('Error fetching lounges:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load lounges');
+    } catch (e: any) {
+      console.error('[fetch]', e);
+      setError(e.message || 'Could not load lounges');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  };
+  }
 
-  // ── Select an airport from dropdown ───────────────────────────
-  const onSelectAirport = async (code: string) => {
+  // ── Handlers ─────────────────────────────────────────────────
+  const onSelectAirport = useCallback((code: string) => {
     setShowDropdown(false);
     setSelectedAirport(code);
-    await fetchLounges(userCoords?.latitude ?? null, userCoords?.longitude ?? null, code);
-  };
+    fetchLounges(userCoords?.lat ?? null, userCoords?.lng ?? null, code);
+  }, [userCoords]);
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(() => {
     setRefreshing(true);
-    await fetchLounges(
-      userCoords?.latitude ?? null,
-      userCoords?.longitude ?? null,
-      selectedAirport
-    );
-    setRefreshing(false);
-  };
+    if (selectedAirport) {
+      fetchLounges(userCoords?.lat ?? null, userCoords?.lng ?? null, selectedAirport);
+    } else {
+      initAndFetch();
+    }
+  }, [userCoords, selectedAirport]);
 
-  // ── Render Airport Dropdown Item ──────────────────────────────
-  const renderAirportItem = ({ item }: { item: Airport }) => {
+  function toggleExpand(id: string) {
+    setExpandedCard(expandedCard === id ? null : id);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  Render Helpers
+  // ═══════════════════════════════════════════════════════════════
+
+  // ── Airport Item ─────────────────────────────────────────────
+  function renderAirportItem({ item }: { item: Airport }) {
     const isSelected = item.code === selectedAirport;
     return (
       <Pressable
-        style={[styles.dropdownItem, isSelected && styles.dropdownItemSelected]}
+        style={[s.airportItem, isSelected && s.airportItemActive]}
         onPress={() => onSelectAirport(item.code)}
       >
-        <View style={styles.dropdownItemLeft}>
-          <View style={[styles.airportCodeBadge, isSelected && styles.airportCodeBadgeSelected]}>
-            <Text style={[styles.airportCodeText, isSelected && styles.airportCodeTextSelected]}>
-              {item.code}
-            </Text>
-          </View>
-          <View style={styles.dropdownTextGroup}>
-            <Text style={[styles.dropdownCity, isSelected && styles.dropdownCitySelected]}>
-              {item.city}
-            </Text>
-            <Text style={styles.dropdownState}>
-              {item.state} · {item.loungeCount} lounge{item.loungeCount !== 1 ? 's' : ''}
-            </Text>
-          </View>
+        <View style={s.airportBadge}>
+          <Text style={s.airportBadgeText}>{item.code}</Text>
         </View>
-        {item.distance !== null && (
-          <Text style={styles.dropdownDistance}>{item.distance} km</Text>
-        )}
+        <View style={{ flex: 1 }}>
+          <Text style={s.airportCity}>{item.city}</Text>
+          <Text style={s.airportState}>{item.state}</Text>
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={s.loungeCount}>{item.loungeCount} lounge{item.loungeCount !== 1 ? 's' : ''}</Text>
+          {item.distance != null && (
+            <Text style={s.airportDist}>{item.distance} km</Text>
+          )}
+        </View>
       </Pressable>
     );
-  };
+  }
 
-  // ── Render Lounge Card ────────────────────────────────────────
-  const renderLounge = (lounge: Lounge) => {
-    const rating = lounge.rating || 0;
-    const distance = lounge.distance || 0;
+  // ── Open/Closed Badge ────────────────────────────────────────
+  function StatusBadge({ isOpen }: { isOpen: boolean | null }) {
+    if (isOpen === null) return null;
+    return (
+      <View style={[s.statusBadge, isOpen ? s.statusOpen : s.statusClosed]}>
+        <View style={[s.statusDot, { backgroundColor: isOpen ? '#059669' : '#DC2626' }]} />
+        <Text style={[s.statusText, { color: isOpen ? '#fff' : '#fff' }]}>
+          {isOpen ? 'Open Now' : 'Closed'}
+        </Text>
+      </View>
+    );
+  }
+
+  // ── Rating Stars ─────────────────────────────────────────────
+  function RatingDisplay({ rating, total }: { rating: number; total: number }) {
+    const stars = [];
+    for (let i = 1; i <= 5; i++) {
+      if (i <= Math.floor(rating)) {
+        stars.push(<Ionicons key={i} name="star" size={14} color="#F59E0B" />);
+      } else if (i - 0.5 <= rating) {
+        stars.push(<Ionicons key={i} name="star-half" size={14} color="#F59E0B" />);
+      } else {
+        stars.push(<Ionicons key={i} name="star-outline" size={14} color="#D1D5DB" />);
+      }
+    }
+    return (
+      <View style={s.ratingRow}>
+        {stars}
+        <Text style={s.ratingNum}>{rating.toFixed(1)}</Text>
+        {total > 0 && <Text style={s.ratingCount}>({total})</Text>}
+      </View>
+    );
+  }
+
+  // ── Lounge Card ──────────────────────────────────────────────
+  function renderLounge(lounge: Lounge, index: number) {
+    const expanded = expandedCard === lounge.id;
+    const img = lounge.photo_url || PLACEHOLDER_IMG;
+    const hasDetails = lounge.phone || lounge.website || lounge.description || lounge.top_review;
 
     return (
-      <Pressable key={lounge.id} style={styles.loungeCard}>
-        <BlurView intensity={80} tint="light" style={styles.cardBlur}>
-          <View style={styles.cardContent}>
-            {/* Header */}
-            <View style={styles.cardHeader}>
-              <View style={styles.nameSection}>
-                <Text style={styles.loungeName} numberOfLines={2}>
-                  {lounge.name}
-                </Text>
-                <View style={styles.terminalRow}>
-                  <Ionicons name="airplane" size={12} color="#6B7280" />
-                  <Text style={styles.terminalText}>
-                    {lounge.airport_code} · {lounge.terminal}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.distanceBadge}>
-                <Ionicons name="navigate" size={14} color="#4F46E5" />
-                <Text style={styles.distanceText}>{distance} km</Text>
-              </View>
-            </View>
-
-            {/* Address */}
-            <View style={styles.infoRow}>
-              <Ionicons name="location-outline" size={16} color="#6B7280" />
-              <Text style={styles.infoText} numberOfLines={2}>
-                {lounge.address}
-              </Text>
-            </View>
-
-            {/* Rating + Hours row */}
-            <View style={styles.metaRow}>
-              {rating > 0 && (
-                <View style={styles.metaItem}>
-                  <Ionicons name="star" size={14} color="#F59E0B" />
-                  <Text style={styles.metaText}>{rating.toFixed(1)}</Text>
-                </View>
-              )}
-              {lounge.opening_hours && (
-                <View style={styles.metaItem}>
-                  <Ionicons name="time-outline" size={14} color="#6B7280" />
-                  <Text style={styles.metaText}>{lounge.opening_hours}</Text>
-                </View>
-              )}
-            </View>
-
-            {/* Access Info */}
-            {lounge.access_info && (
-              <View style={styles.accessRow}>
-                <Ionicons name="key-outline" size={14} color="#10B981" />
-                <Text style={styles.accessText}>{lounge.access_info}</Text>
+      <View key={lounge.id} style={s.card}>
+        {/* Hero Image */}
+        <View style={s.cardImageWrap}>
+          <Image source={{ uri: img }} style={s.cardImage} resizeMode="cover" />
+          <View style={s.cardImageOverlay}>
+            <StatusBadge isOpen={lounge.is_open} />
+            {lounge.distance > 0 && (
+              <View style={s.distBadge}>
+                <Ionicons name="navigate-outline" size={12} color="#fff" />
+                <Text style={s.distBadgeText}>{lounge.distance} km</Text>
               </View>
             )}
-
-            {/* Amenities */}
-            {lounge.amenities && lounge.amenities.length > 0 && (
-              <View style={styles.amenitiesRow}>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.amenitiesList}
-                >
-                  {lounge.amenities.map((amenity, idx) => (
-                    <View key={idx} style={styles.amenityBadge}>
-                      <Text style={styles.amenityText}>{amenity}</Text>
-                    </View>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
-            {/* Action */}
-            <Pressable style={styles.actionButton}>
-              <Ionicons name="open" size={16} color="#FFF" />
-              <Text style={styles.buttonText}>View Details</Text>
-            </Pressable>
           </View>
-        </BlurView>
-      </Pressable>
-    );
-  };
+        </View>
 
-  // ── Main Render ───────────────────────────────────────────────
+        {/* Card Body */}
+        <View style={s.cardBody}>
+          {/* Title + Terminal */}
+          <Text style={s.cardTitle} numberOfLines={2}>{lounge.name}</Text>
+          {lounge.terminal ? (
+            <View style={s.terminalRow}>
+              <Ionicons name="business-outline" size={13} color="#94A3B8" />
+              <Text style={s.terminalText}>{lounge.terminal}</Text>
+              <Text style={s.terminalDot}>{' \u2022 '}</Text>
+              <Text style={s.terminalText}>{lounge.airport_code}</Text>
+            </View>
+          ) : null}
+
+          {/* Rating + Hours */}
+          <View style={s.metaRow}>
+            <RatingDisplay rating={lounge.rating} total={lounge.user_ratings_total} />
+            {lounge.opening_hours ? (
+              <View style={s.hoursChip}>
+                <Ionicons name="time-outline" size={12} color="#64748B" />
+                <Text style={s.hoursText}>{lounge.opening_hours}</Text>
+              </View>
+            ) : null}
+          </View>
+
+          {/* Address */}
+          <View style={s.addressRow}>
+            <Ionicons name="location-outline" size={14} color="#94A3B8" />
+            <Text style={s.addressText} numberOfLines={2}>{lounge.address}</Text>
+          </View>
+
+          {/* Access */}
+          {lounge.access_info ? (
+            <View style={s.accessRow}>
+              <Ionicons name="key-outline" size={14} color="#2563EB" />
+              <Text style={s.accessText}>{lounge.access_info}</Text>
+            </View>
+          ) : null}
+
+          {/* Amenities */}
+          {lounge.amenities?.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.amenitiesScroll}>
+              {lounge.amenities.map((a, i) => (
+                <View key={i} style={s.amenityChip}>
+                  <Text style={s.amenityText}>{a}</Text>
+                </View>
+              ))}
+            </ScrollView>
+          )}
+
+          {/* Description (from Place Details) */}
+          {expanded && lounge.description ? (
+            <Text style={s.descText}>{lounge.description}</Text>
+          ) : null}
+
+          {/* Top Review (from Place Details) */}
+          {expanded && lounge.top_review ? (
+            <View style={s.reviewBox}>
+              <Ionicons name="chatbubble-outline" size={14} color="#94A3B8" />
+              <Text style={s.reviewText} numberOfLines={3}>{lounge.top_review}</Text>
+            </View>
+          ) : null}
+
+          {/* Action Buttons */}
+          <View style={s.actionRow}>
+            {hasDetails && (
+              <Pressable style={s.actionBtn} onPress={() => toggleExpand(lounge.id)}>
+                <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#2563EB" />
+                <Text style={s.actionBtnText}>{expanded ? 'Less' : 'More'}</Text>
+              </Pressable>
+            )}
+            {lounge.maps_url && (
+              <Pressable style={s.actionBtn} onPress={() => Linking.openURL(lounge.maps_url!)}>
+                <Ionicons name="map-outline" size={16} color="#2563EB" />
+                <Text style={s.actionBtnText}>Maps</Text>
+              </Pressable>
+            )}
+            {lounge.website && (
+              <Pressable style={s.actionBtn} onPress={() => Linking.openURL(lounge.website!)}>
+                <Ionicons name="globe-outline" size={16} color="#2563EB" />
+                <Text style={s.actionBtnText}>Website</Text>
+              </Pressable>
+            )}
+            {lounge.phone && (
+              <Pressable style={s.actionBtn} onPress={() => Linking.openURL('tel:' + lounge.phone)}>
+                <Ionicons name="call-outline" size={16} color="#2563EB" />
+                <Text style={s.actionBtnText}>Call</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  Main Render
+  // ═══════════════════════════════════════════════════════════════
+
   return (
-    <View style={styles.container}>
-      <LinearGradient
-        colors={['#E8F0FE', '#F5F7FA', '#FFFFFF']}
-        style={styles.gradientBg}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
+    <View style={s.container}>
+      <ScrollView
+        contentContainerStyle={s.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#2563EB"
+            colors={['#2563EB']}
+          />
+        }
       >
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#4F46E5" />
-          }
-        >
-          {/* Header */}
-          <View style={styles.header}>
-            <Text style={styles.kicker}>AIRPORT LOUNGES</Text>
-            <Text style={styles.title}>Find Your Lounge</Text>
-            <Text style={styles.subtitle}>
-              Premium airport lounge access across India
+        {/* Header */}
+        <View style={s.header}>
+          <Text style={s.headerLabel}>AIRPORT LOUNGES</Text>
+          <Text style={s.headerTitle}>Find Your Lounge</Text>
+          {airportName ? (
+            <Text style={s.headerSubtitle}>{airportName}</Text>
+          ) : null}
+        </View>
+
+        {/* Airport Selector */}
+        <Pressable style={s.selector} onPress={() => setShowDropdown(true)}>
+          <View style={s.selectorContent}>
+            <Ionicons name="airplane" size={20} color="#2563EB" />
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={s.selectorLabel}>
+                {selectedAirport ? airportCity + ' (' + selectedAirport + ')' : 'Select Airport'}
+              </Text>
+              {lounges.length > 0 && (
+                <Text style={s.selectorSub}>
+                  {lounges.length} lounge{lounges.length !== 1 ? 's' : ''} found
+                </Text>
+              )}
+            </View>
+            <Ionicons name="chevron-down" size={20} color="#94A3B8" />
+          </View>
+        </Pressable>
+
+        {/* Location Indicator */}
+        {userCoords && (
+          <View style={s.locationRow}>
+            <Ionicons name="location" size={14} color="#059669" />
+            <Text style={s.locationText}>
+              Location detected{selectedAirport ? ' \u2022 Nearest: ' + selectedAirport : ''}
             </Text>
           </View>
+        )}
 
-          {/* Airport Selector */}
-          <Pressable style={styles.selectorCard} onPress={() => setShowDropdown(true)}>
-            <BlurView intensity={90} tint="light" style={styles.selectorBlur}>
-              <View style={styles.selectorContent}>
-                <View style={styles.selectorLeft}>
-                  <View style={styles.selectorIcon}>
-                    <Ionicons name="airplane" size={20} color="#4F46E5" />
-                  </View>
-                  <View>
-                    <Text style={styles.selectorLabel}>Airport</Text>
-                    <Text style={styles.selectorValue}>
-                      {selectedAirport
-                        ? `${airportCity} (${selectedAirport})`
-                        : 'Select Airport'}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.selectorRight}>
-                  <View style={styles.countBadge}>
-                    <Text style={styles.countText}>{lounges.length}</Text>
-                  </View>
-                  <Ionicons name="chevron-down" size={20} color="#6B7280" />
-                </View>
-              </View>
-            </BlurView>
-          </Pressable>
+        {/* Source Badge */}
+        {dataSource ? (
+          <View style={[s.sourceBadge, dataSource === 'google_places' ? s.sourceGoogle : s.sourceMock]}>
+            <Ionicons
+              name={dataSource === 'google_places' ? 'globe-outline' : 'cube-outline'}
+              size={14}
+              color={dataSource === 'google_places' ? '#059669' : '#D97706'}
+            />
+            <Text style={[s.sourceText, { color: dataSource === 'google_places' ? '#059669' : '#D97706' }]}>
+              {dataSource === 'google_places' ? 'Live from Google Maps' : 'Curated Data'}
+            </Text>
+          </View>
+        ) : null}
 
-          {/* Location Indicator */}
-          {userCoords && selectedAirport && (
-            <View style={styles.locationIndicator}>
-              <Ionicons name="navigate-outline" size={14} color="#10B981" />
-              <Text style={styles.locationText}>
-                Showing lounges near your location · {airportCity}
-              </Text>
-            </View>
-          )}
+        {/* Loading State */}
+        {loading && (
+          <View style={s.centerState}>
+            <ActivityIndicator size="large" color="#2563EB" />
+            <Text style={s.stateText}>Searching lounges...</Text>
+          </View>
+        )}
 
-          {/* Loading */}
-          {loading && (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#4F46E5" />
-              <Text style={styles.loadingText}>Finding lounges...</Text>
-            </View>
-          )}
+        {/* Error State */}
+        {error && !loading && (
+          <View style={s.centerState}>
+            <Ionicons name="alert-circle-outline" size={48} color="#DC2626" />
+            <Text style={s.stateText}>{error}</Text>
+            <Pressable style={s.retryBtn} onPress={onRefresh}>
+              <Text style={s.retryText}>Try Again</Text>
+            </Pressable>
+          </View>
+        )}
 
-          {/* Error */}
-          {error && !loading && (
-            <View style={styles.errorContainer}>
-              <View style={styles.errorIcon}>
-                <Ionicons name="alert-circle-outline" size={48} color="#EF4444" />
-              </View>
-              <Text style={styles.errorTitle}>Oops!</Text>
-              <Text style={styles.errorText}>{error}</Text>
-              <Pressable style={styles.retryButton} onPress={onRefresh}>
-                <Text style={styles.retryButtonText}>Try Again</Text>
+        {/* Empty State */}
+        {!loading && !error && lounges.length === 0 && (
+          <View style={s.centerState}>
+            <Ionicons name="search-outline" size={48} color="#CBD5E1" />
+            <Text style={s.stateText}>No lounges found for this airport</Text>
+          </View>
+        )}
+
+        {/* Lounge Cards */}
+        {!loading && lounges.map((l, i) => renderLounge(l, i))}
+
+        <View style={{ height: 40 }} />
+      </ScrollView>
+
+      {/* Airport Modal */}
+      <Modal visible={showDropdown} transparent animationType="slide">
+        <View style={s.modalOverlay}>
+          <View style={s.modalContainer}>
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>Select Airport</Text>
+              <Pressable onPress={() => setShowDropdown(false)} style={s.modalClose}>
+                <Ionicons name="close" size={24} color="#1E293B" />
               </Pressable>
             </View>
-          )}
-
-          {/* Empty */}
-          {!loading && lounges.length === 0 && !error && (
-            <View style={styles.emptyState}>
-              <View style={styles.iconCircle}>
-                <Ionicons name="business-outline" size={48} color="#4F46E5" />
-              </View>
-              <Text style={styles.emptyTitle}>No lounges found</Text>
-              <Text style={styles.emptySubtitle}>
-                Try selecting a different airport from the dropdown above.
-              </Text>
-            </View>
-          )}
-
-          {/* Lounges */}
-          {!loading && lounges.length > 0 && lounges.map((l) => renderLounge(l))}
-        </ScrollView>
-      </LinearGradient>
-
-      {/* ── Airport Selection Modal ──────────────────────────── */}
-      <Modal
-        visible={showDropdown}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setShowDropdown(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Airport</Text>
-              <Pressable onPress={() => setShowDropdown(false)} style={styles.modalClose}>
-                <Ionicons name="close" size={24} color="#374151" />
-              </Pressable>
-            </View>
-            {userCoords && (
-              <View style={styles.modalLocationHint}>
-                <Ionicons name="navigate-outline" size={14} color="#4F46E5" />
-                <Text style={styles.modalLocationText}>Sorted by distance from you</Text>
-              </View>
-            )}
             <FlatList
               data={airports}
+              keyExtractor={(a) => a.code}
               renderItem={renderAirportItem}
-              keyExtractor={(item) => item.code}
+              contentContainerStyle={{ paddingBottom: 20 }}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.dropdownList}
-              ItemSeparatorComponent={() => <View style={styles.dropdownSeparator} />}
             />
           </View>
         </View>
@@ -415,317 +481,115 @@ export default function LoungesScreen() {
   );
 }
 
-// ── Styles ──────────────────────────────────────────────────────
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F7FA' },
-  gradientBg: { flex: 1 },
-  scrollView: { flex: 1 },
-  scrollContent: { paddingTop: 60, paddingBottom: 120 },
+// ═══════════════════════════════════════════════════════════════════
+//  Styles — Classic White Theme
+// ═══════════════════════════════════════════════════════════════════
 
-  /* Header */
-  header: { paddingHorizontal: 24, paddingBottom: 20 },
-  kicker: {
-    color: '#6B7280',
-    fontSize: 12,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-    fontFamily: 'SpaceGrotesk_500Medium',
-    marginBottom: 8,
-  },
-  title: {
-    color: '#0B1F33',
-    fontSize: 34,
-    fontFamily: 'SpaceGrotesk_700Bold',
-    marginBottom: 4,
-  },
-  subtitle: {
-    color: '#4B5563',
-    fontSize: 16,
-    fontFamily: 'SpaceGrotesk_400Regular',
-  },
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
+  scrollContent: { paddingTop: Platform.OS === 'ios' ? 60 : 50, paddingHorizontal: 20 },
 
-  /* Airport Selector */
-  selectorCard: {
-    marginHorizontal: 20,
-    marginBottom: 12,
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  selectorBlur: {
-    backgroundColor: 'rgba(255,255,255,0.7)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.9)',
-    borderRadius: 16,
-  },
-  selectorContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 16,
-  },
-  selectorLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  selectorIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: 'rgba(79,70,229,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  selectorLabel: {
-    color: '#6B7280',
-    fontSize: 11,
-    fontFamily: 'SpaceGrotesk_500Medium',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  selectorValue: {
-    color: '#0B1F33',
-    fontSize: 16,
-    fontFamily: 'SpaceGrotesk_700Bold',
-    marginTop: 2,
-  },
-  selectorRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  countBadge: {
-    backgroundColor: '#4F46E5',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 10,
-  },
-  countText: { color: '#FFF', fontSize: 12, fontFamily: 'SpaceGrotesk_700Bold' },
+  // Header
+  header: { marginBottom: 20 },
+  headerLabel: { fontFamily: 'SpaceGrotesk_400Regular', fontSize: 12, color: '#2563EB', letterSpacing: 3, marginBottom: 4 },
+  headerTitle: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: 28, color: '#1E293B' },
+  headerSubtitle: { fontFamily: 'SpaceGrotesk_400Regular', fontSize: 13, color: '#94A3B8', marginTop: 4 },
 
-  /* Location Indicator */
-  locationIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginHorizontal: 24,
-    marginBottom: 16,
-  },
-  locationText: {
-    color: '#10B981',
-    fontSize: 12,
-    fontFamily: 'SpaceGrotesk_500Medium',
-  },
+  // Selector
+  selector: { marginBottom: 12, borderRadius: 16, overflow: 'hidden', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0',
+    ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8 }, android: { elevation: 2 } }) },
+  selectorContent: { flexDirection: 'row', alignItems: 'center', padding: 16 },
+  selectorLabel: { fontFamily: 'SpaceGrotesk_500Medium', fontSize: 16, color: '#1E293B' },
+  selectorSub: { fontFamily: 'SpaceGrotesk_400Regular', fontSize: 12, color: '#94A3B8', marginTop: 2 },
 
-  /* Loading */
-  loadingContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 80 },
-  loadingText: {
-    marginTop: 16,
-    color: '#4B5563',
-    fontSize: 16,
-    fontFamily: 'SpaceGrotesk_500Medium',
-  },
+  // Location
+  locationRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 6 },
+  locationText: { fontFamily: 'SpaceGrotesk_400Regular', fontSize: 12, color: '#64748B' },
 
-  /* Error */
-  errorContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 40,
-    paddingTop: 60,
-  },
-  errorIcon: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: 'rgba(239,68,68,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
-  },
-  errorTitle: {
-    color: '#0B1F33',
-    fontSize: 20,
-    fontFamily: 'SpaceGrotesk_700Bold',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  errorText: {
-    color: '#6B7280',
-    fontSize: 14,
-    fontFamily: 'SpaceGrotesk_400Regular',
-    textAlign: 'center',
-    marginBottom: 24,
-    lineHeight: 20,
-  },
+  // Source Badge
+  sourceBadge: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, marginBottom: 16, gap: 6 },
+  sourceGoogle: { backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#A7F3D0' },
+  sourceMock: { backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A' },
+  sourceText: { fontFamily: 'SpaceGrotesk_500Medium', fontSize: 12 },
 
-  /* Empty */
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 40,
-    paddingTop: 60,
-  },
-  iconCircle: {
-    width: 96,
-    height: 96,
-    borderRadius: 999,
-    backgroundColor: 'rgba(79,70,229,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
-  },
-  emptyTitle: {
-    color: '#0B1F33',
-    fontSize: 20,
-    fontFamily: 'SpaceGrotesk_700Bold',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  emptySubtitle: {
-    color: '#6B7280',
-    fontSize: 14,
-    fontFamily: 'SpaceGrotesk_400Regular',
-    textAlign: 'center',
-    marginBottom: 24,
-    lineHeight: 20,
-  },
+  // Center States
+  centerState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 12 },
+  stateText: { fontFamily: 'SpaceGrotesk_400Regular', fontSize: 14, color: '#94A3B8', textAlign: 'center' },
+  retryBtn: { backgroundColor: '#EFF6FF', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12, marginTop: 8, borderWidth: 1, borderColor: '#BFDBFE' },
+  retryText: { fontFamily: 'SpaceGrotesk_500Medium', fontSize: 14, color: '#2563EB' },
 
-  /* Lounge Card */
-  loungeCard: { marginHorizontal: 20, marginBottom: 16, borderRadius: 20, overflow: 'hidden' },
-  cardBlur: {
-    backgroundColor: 'rgba(255,255,255,0.6)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.8)',
-  },
-  cardContent: { padding: 20 },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  nameSection: { flex: 1, marginRight: 12 },
-  loungeName: {
-    color: '#0B1F33',
-    fontSize: 18,
-    fontFamily: 'SpaceGrotesk_700Bold',
-    marginBottom: 4,
-  },
-  terminalRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  terminalText: {
-    color: '#6B7280',
-    fontSize: 12,
-    fontFamily: 'SpaceGrotesk_500Medium',
-  },
-  distanceBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(79,70,229,0.1)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-    gap: 4,
-  },
-  distanceText: { color: '#4F46E5', fontSize: 13, fontFamily: 'SpaceGrotesk_700Bold' },
+  // Card
+  card: { backgroundColor: '#FFFFFF', borderRadius: 20, overflow: 'hidden', marginBottom: 20, borderWidth: 1, borderColor: '#E2E8F0',
+    ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12 }, android: { elevation: 3 } }) },
 
-  /* Info */
-  infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 },
-  infoText: { color: '#6B7280', fontSize: 13, fontFamily: 'SpaceGrotesk_400Regular', flex: 1 },
+  // Card Image
+  cardImageWrap: { height: 180, position: 'relative' },
+  cardImage: { width: '100%', height: '100%' },
+  cardImageOverlay: { position: 'absolute', top: 12, left: 12, right: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
 
-  /* Meta row */
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 8 },
-  metaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  metaText: { color: '#6B7280', fontSize: 13, fontFamily: 'SpaceGrotesk_500Medium' },
+  // Status Badge (on image — keep semi-transparent dark bg for contrast)
+  statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, gap: 5 },
+  statusOpen: { backgroundColor: 'rgba(5,150,105,0.85)' },
+  statusClosed: { backgroundColor: 'rgba(220,38,38,0.85)' },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
+  statusText: { fontFamily: 'SpaceGrotesk_500Medium', fontSize: 11, color: '#fff' },
 
-  /* Access */
-  accessRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 12,
-    backgroundColor: 'rgba(16,185,129,0.08)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  accessText: { color: '#059669', fontSize: 12, fontFamily: 'SpaceGrotesk_500Medium', flex: 1 },
+  // Distance Badge (on image)
+  distBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, gap: 4 },
+  distBadgeText: { fontFamily: 'SpaceGrotesk_500Medium', fontSize: 11, color: '#fff' },
 
-  /* Amenities */
-  amenitiesRow: { marginBottom: 16 },
-  amenitiesList: { flexGrow: 0 },
-  amenityBadge: {
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    marginRight: 8,
-  },
-  amenityText: { color: '#4B5563', fontSize: 12, fontFamily: 'SpaceGrotesk_500Medium' },
+  // Card Body
+  cardBody: { padding: 16 },
+  cardTitle: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: 18, color: '#1E293B', marginBottom: 4 },
+  terminalRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 10 },
+  terminalText: { fontFamily: 'SpaceGrotesk_400Regular', fontSize: 12, color: '#64748B' },
+  terminalDot: { color: '#CBD5E1', fontSize: 12 },
 
-  /* Action */
-  actionButton: {
-    flexDirection: 'row',
-    backgroundColor: '#4F46E5',
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  buttonText: { color: '#FFF', fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold' },
+  // Meta
+  metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  ratingNum: { fontFamily: 'SpaceGrotesk_500Medium', fontSize: 13, color: '#D97706', marginLeft: 4 },
+  ratingCount: { fontFamily: 'SpaceGrotesk_400Regular', fontSize: 12, color: '#94A3B8', marginLeft: 2 },
+  hoursChip: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  hoursText: { fontFamily: 'SpaceGrotesk_400Regular', fontSize: 12, color: '#64748B' },
 
-  /* Retry */
-  retryButton: { backgroundColor: '#4F46E5', paddingHorizontal: 32, paddingVertical: 12, borderRadius: 12 },
-  retryButtonText: { color: '#FFF', fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold', textAlign: 'center' },
+  // Address
+  addressRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 8 },
+  addressText: { fontFamily: 'SpaceGrotesk_400Regular', fontSize: 12, color: '#64748B', flex: 1 },
 
-  /* ── Modal / Dropdown ──────────────────────────────────────── */
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: '#FFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: '70%',
-    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 12,
-  },
-  modalTitle: { fontSize: 20, fontFamily: 'SpaceGrotesk_700Bold', color: '#0B1F33' },
+  // Access
+  accessRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
+  accessText: { fontFamily: 'SpaceGrotesk_400Regular', fontSize: 12, color: '#2563EB', flex: 1 },
+
+  // Amenities
+  amenitiesScroll: { marginBottom: 12 },
+  amenityChip: { backgroundColor: '#F1F5F9', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, marginRight: 6, borderWidth: 1, borderColor: '#E2E8F0' },
+  amenityText: { fontFamily: 'SpaceGrotesk_400Regular', fontSize: 11, color: '#475569' },
+
+  // Description & Review
+  descText: { fontFamily: 'SpaceGrotesk_400Regular', fontSize: 13, color: '#475569', marginBottom: 10, lineHeight: 20 },
+  reviewBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#F8FAFC', padding: 12, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: '#E2E8F0' },
+  reviewText: { fontFamily: 'SpaceGrotesk_400Regular', fontSize: 12, color: '#64748B', flex: 1, fontStyle: 'italic', lineHeight: 18 },
+
+  // Action Row
+  actionRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#EFF6FF', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: '#BFDBFE' },
+  actionBtnText: { fontFamily: 'SpaceGrotesk_500Medium', fontSize: 12, color: '#2563EB' },
+
+  // Modal
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'flex-end' },
+  modalContainer: { maxHeight: '75%', borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: 'hidden', paddingTop: 20, paddingHorizontal: 20, backgroundColor: '#FFFFFF' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  modalTitle: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: 20, color: '#1E293B' },
   modalClose: { padding: 4 },
-  modalLocationHint: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 24,
-    paddingBottom: 12,
-  },
-  modalLocationText: { color: '#4F46E5', fontSize: 12, fontFamily: 'SpaceGrotesk_500Medium' },
-  dropdownList: { paddingHorizontal: 16 },
-  dropdownSeparator: { height: 1, backgroundColor: '#F3F4F6', marginHorizontal: 8 },
-  dropdownItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-  },
-  dropdownItemSelected: { backgroundColor: 'rgba(79,70,229,0.06)' },
-  dropdownItemLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
-  airportCodeBadge: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  airportCodeBadgeSelected: { backgroundColor: '#4F46E5' },
-  airportCodeText: { fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold', color: '#374151' },
-  airportCodeTextSelected: { color: '#FFF' },
-  dropdownTextGroup: { flex: 1 },
-  dropdownCity: { fontSize: 15, fontFamily: 'SpaceGrotesk_700Bold', color: '#0B1F33' },
-  dropdownCitySelected: { color: '#4F46E5' },
-  dropdownState: { fontSize: 12, fontFamily: 'SpaceGrotesk_400Regular', color: '#6B7280', marginTop: 2 },
-  dropdownDistance: { fontSize: 12, fontFamily: 'SpaceGrotesk_500Medium', color: '#9CA3AF' },
+
+  // Airport Items
+  airportItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 12, borderRadius: 12, marginBottom: 6, gap: 12 },
+  airportItemActive: { backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#BFDBFE' },
+  airportBadge: { backgroundColor: '#EFF6FF', width: 48, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#BFDBFE' },
+  airportBadgeText: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: 13, color: '#2563EB' },
+  airportCity: { fontFamily: 'SpaceGrotesk_500Medium', fontSize: 15, color: '#1E293B' },
+  airportState: { fontFamily: 'SpaceGrotesk_400Regular', fontSize: 12, color: '#94A3B8' },
+  loungeCount: { fontFamily: 'SpaceGrotesk_400Regular', fontSize: 12, color: '#64748B' },
+  airportDist: { fontFamily: 'SpaceGrotesk_400Regular', fontSize: 11, color: '#94A3B8', marginTop: 2 },
 });
