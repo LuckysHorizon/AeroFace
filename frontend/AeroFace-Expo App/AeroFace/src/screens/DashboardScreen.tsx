@@ -1,7 +1,10 @@
 import { BlurView } from 'expo-blur';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../../App';
 
 import HomeScreen from './HomeScreen';
 import LoungesScreen from './LoungesScreen';
@@ -9,22 +12,36 @@ import SubscriptionsScreen from './SubscriptionsScreen';
 import ProfileScreen from './ProfileScreen';
 
 type NavItem = 'Dashboard' | 'Lounges' | 'Subscriptions' | 'Profile';
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+type DashboardRouteProp = NativeStackScreenProps<RootStackParamList, 'Dashboard'>['route'];
 
 export default function DashboardScreen() {
   const [activeNav, setActiveNav] = useState<NavItem>('Dashboard');
+  const [initialAirportCode, setInitialAirportCode] = useState<string | undefined>(undefined);
+  const navigation = useNavigation<NavigationProp>();
+  const route = useRoute<DashboardRouteProp>();
+
+  // Handle incoming airportCode from BoardingPassScreen
+  useEffect(() => {
+    const airportCode = route.params?.airportCode;
+    if (airportCode) {
+      setInitialAirportCode(airportCode);
+      setActiveNav('Lounges');
+    }
+  }, [route.params?.airportCode]);
 
   const renderScreen = () => {
     switch (activeNav) {
       case 'Dashboard':
-        return <HomeScreen />;
+        return <HomeScreen navigation={navigation} />;
       case 'Lounges':
-        return <LoungesScreen />;
+        return <LoungesScreen initialAirportCode={initialAirportCode} />;
       case 'Subscriptions':
         return <SubscriptionsScreen />;
       case 'Profile':
         return <ProfileScreen />;
       default:
-        return <HomeScreen />;
+        return <HomeScreen navigation={navigation} />;
     }
   };
 

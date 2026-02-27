@@ -3,8 +3,14 @@ import { StyleSheet, Text, View, ScrollView, Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../../App';
 
-export default function HomeScreen() {
+interface HomeScreenProps {
+  navigation: NativeStackNavigationProp<RootStackParamList>;
+}
+
+export default function HomeScreen({ navigation }: HomeScreenProps) {
   return (
     <LinearGradient
       colors={['#E8F0FE', '#F5F7FA', '#FFFFFF']}
@@ -35,7 +41,10 @@ export default function HomeScreen() {
 
         {/* Quick Actions Grid */}
         <View style={styles.quickActionsGrid}>
-          <Pressable style={[styles.actionCard, styles.glassCard]}>
+          <Pressable
+            style={[styles.actionCard, styles.glassCard]}
+            onPress={() => navigation.navigate('BoardingPassScan')}
+          >
             <View style={styles.actionIconContainer}>
               <Ionicons name="scan-outline" size={28} color="#4F46E5" />
             </View>

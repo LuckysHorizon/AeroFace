@@ -8,11 +8,21 @@ import {
 import { useEffect, useState } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { supabase } from './src/lib/supabase';
 import AuthScreen from './src/screens/AuthScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
+import BoardingPassScreen from './src/screens/BoardingPassScreen';
 import SuccessToast from './src/components/SuccessToast';
+
+export type RootStackParamList = {
+  Dashboard: { airportCode?: string } | undefined;
+  BoardingPassScan: undefined;
+};
+
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -63,7 +73,22 @@ export default function App() {
         message="Successfully logged in"
         onHide={() => setShowToast(false)}
       />
-      {session ? <DashboardScreen /> : <AuthScreen />}
+      {session ? (
+        <NavigationContainer>
+          <Stack.Navigator screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="Dashboard" component={DashboardScreen} />
+            <Stack.Screen
+              name="BoardingPassScan"
+              component={BoardingPassScreen}
+              options={{
+                animation: 'slide_from_right',
+              }}
+            />
+          </Stack.Navigator>
+        </NavigationContainer>
+      ) : (
+        <AuthScreen />
+      )}
     </>
   );
 }

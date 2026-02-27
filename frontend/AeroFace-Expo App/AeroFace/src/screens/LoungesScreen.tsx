@@ -76,7 +76,11 @@ const PLACEHOLDER_IMG = 'https://images.unsplash.com/photo-1540339832862-4745998
 //  Component
 // ═══════════════════════════════════════════════════════════════════
 
-export default function LoungesScreen() {
+interface LoungesScreenProps {
+  initialAirportCode?: string;
+}
+
+export default function LoungesScreen({ initialAirportCode }: LoungesScreenProps = {}) {
   const [lounges, setLounges] = useState<Lounge[]>([]);
   const [airports, setAirports] = useState<Airport[]>([]);
   const [selectedAirport, setSelectedAirport] = useState<string | null>(null);
@@ -92,8 +96,13 @@ export default function LoungesScreen() {
 
   // ── Init ─────────────────────────────────────────────────────
   useEffect(() => {
-    initAndFetch();
-  }, []);
+    if (initialAirportCode) {
+      // If we received an airport from boarding pass scan, fetch for that airport
+      fetchLounges(null, null, initialAirportCode);
+    } else {
+      initAndFetch();
+    }
+  }, [initialAirportCode]);
 
   async function initAndFetch() {
     setLoading(true);
