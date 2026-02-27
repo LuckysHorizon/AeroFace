@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -16,6 +16,14 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import {
+  LoungeData,
+  cacheKey,
+  getCached,
+  getCachedOrFetch,
+  clearCache,
+  AUTO_LOCATION_KEY,
+} from '../lib/loungeCache';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -93,6 +101,17 @@ export default function LoungesScreen({ initialAirportCode }: LoungesScreenProps
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [dataSource, setDataSource] = useState<string>('');
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
+  const hasInitialized = useRef(false);
+
+  // ── Helper: apply fetched data to state ──────────────────────
+  function applyData(data: LoungeData) {
+    setLounges(data.lounges);
+    setAirports(data.airports);
+    setSelectedAirport(data.selectedAirport);
+    setAirportCity(data.airportCity);
+    setAirportName(data.airportName);
+    setDataSource(data.dataSource);
+  }
 
   // ── Init ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -100,13 +119,26 @@ export default function LoungesScreen({ initialAirportCode }: LoungesScreenProps
       // If we received an airport from boarding pass scan, fetch for that airport
       fetchLounges(null, null, initialAirportCode);
     } else {
+      // Skip if we already initialized (component stayed mounted across tab switches)
+      if (hasInitialized.current) return;
+      hasInitialized.current = true;
       initAndFetch();
     }
   }, [initialAirportCode]);
 
   async function initAndFetch() {
-    setLoading(true);
     setError(null);
+
+    // Check cache first — restore instantly without loading spinner
+    const key = cacheKey(null);
+    const cached = getCached(key);
+    if (cached) {
+      applyData(cached);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
@@ -123,39 +155,47 @@ export default function LoungesScreen({ initialAirportCode }: LoungesScreenProps
     }
   }
 
-  // ── Fetch ────────────────────────────────────────────────────
+  // ── Fetch (uses cache layer) ────────────────────────────────
   async function fetchLounges(lat: number | null, lng: number | null, airportCode?: string) {
+    const key = cacheKey(airportCode);
     try {
-      setLoading(true);
       setError(null);
+      // Only show loading if we have no data to display
+      if (lounges.length === 0) setLoading(true);
 
-      const body: any = {};
-      if (lat != null && lng != null) { body.latitude = lat; body.longitude = lng; }
-      if (airportCode) body.airport_code = airportCode;
+      const data = await getCachedOrFetch(key, async () => {
+        const body: any = {};
+        if (lat != null && lng != null) { body.latitude = lat; body.longitude = lng; }
+        if (airportCode) body.airport_code = airportCode;
 
-      const res = await fetch(EDGE_FN, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
-          apikey: SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify(body),
+        const res = await fetch(EDGE_FN, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + SUPABASE_ANON_KEY,
+            apikey: SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify(body),
+        });
+
+        if (!res.ok) throw new Error('Server error (' + res.status + ')');
+        const json = await res.json();
+
+        if (!json.success) {
+          throw new Error(json.error || 'Failed to load lounges');
+        }
+
+        return {
+          lounges: json.lounges || [],
+          airports: json.airports || [],
+          selectedAirport: json.selected_airport || null,
+          airportCity: json.airport_city || '',
+          airportName: json.airport_name || '',
+          dataSource: json.source || 'mock_data',
+        } as LoungeData;
       });
 
-      if (!res.ok) throw new Error('Server error (' + res.status + ')');
-      const data = await res.json();
-
-      if (data.success) {
-        setLounges(data.lounges || []);
-        setAirports(data.airports || []);
-        setSelectedAirport(data.selected_airport || null);
-        setAirportCity(data.airport_city || '');
-        setAirportName(data.airport_name || '');
-        setDataSource(data.source || 'mock_data');
-      } else {
-        throw new Error(data.error || 'Failed to load lounges');
-      }
+      applyData(data);
     } catch (e: any) {
       console.error('[fetch]', e);
       setError(e.message || 'Could not load lounges');
@@ -174,9 +214,12 @@ export default function LoungesScreen({ initialAirportCode }: LoungesScreenProps
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
+    // Clear cache so pull-to-refresh always gets fresh data
+    clearCache(cacheKey(selectedAirport));
     if (selectedAirport) {
       fetchLounges(userCoords?.lat ?? null, userCoords?.lng ?? null, selectedAirport);
     } else {
+      hasInitialized.current = false;
       initAndFetch();
     }
   }, [userCoords, selectedAirport]);
@@ -505,8 +548,10 @@ const s = StyleSheet.create({
   headerSubtitle: { fontFamily: 'SpaceGrotesk_400Regular', fontSize: 13, color: '#94A3B8', marginTop: 4 },
 
   // Selector
-  selector: { marginBottom: 12, borderRadius: 16, overflow: 'hidden', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0',
-    ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8 }, android: { elevation: 2 } }) },
+  selector: {
+    marginBottom: 12, borderRadius: 16, overflow: 'hidden', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0',
+    ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8 }, android: { elevation: 2 } })
+  },
   selectorContent: { flexDirection: 'row', alignItems: 'center', padding: 16 },
   selectorLabel: { fontFamily: 'SpaceGrotesk_500Medium', fontSize: 16, color: '#1E293B' },
   selectorSub: { fontFamily: 'SpaceGrotesk_400Regular', fontSize: 12, color: '#94A3B8', marginTop: 2 },
@@ -528,8 +573,10 @@ const s = StyleSheet.create({
   retryText: { fontFamily: 'SpaceGrotesk_500Medium', fontSize: 14, color: '#2563EB' },
 
   // Card
-  card: { backgroundColor: '#FFFFFF', borderRadius: 20, overflow: 'hidden', marginBottom: 20, borderWidth: 1, borderColor: '#E2E8F0',
-    ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12 }, android: { elevation: 3 } }) },
+  card: {
+    backgroundColor: '#FFFFFF', borderRadius: 20, overflow: 'hidden', marginBottom: 20, borderWidth: 1, borderColor: '#E2E8F0',
+    ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12 }, android: { elevation: 3 } })
+  },
 
   // Card Image
   cardImageWrap: { height: 180, position: 'relative' },

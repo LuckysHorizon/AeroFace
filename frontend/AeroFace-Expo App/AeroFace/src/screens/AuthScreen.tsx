@@ -1,4 +1,5 @@
 import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,6 +17,9 @@ import {
 } from 'react-native';
 
 import { supabase } from '../lib/supabase';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../../App';
 
 type AuthMode = 'signin' | 'signup';
 
@@ -29,7 +33,12 @@ const gradients: Record<AuthMode, [string, string, string]> = {
   signup: ['#102a43', '#0f172a', '#12303f'],
 };
 
-export default function AuthScreen() {
+interface AuthScreenProps {
+  onNavigateToLoungeAuth?: () => void;
+}
+
+export default function AuthScreen({ onNavigateToLoungeAuth }: AuthScreenProps = {}) {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [mode, setMode] = useState<AuthMode>('signin');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -115,107 +124,119 @@ export default function AuthScreen() {
                 </Text>
               </View>
 
-              <Animated.View style={[styles.card, { opacity: fadeAnim }]}> 
-          <View style={styles.segmented}>
-            <Pressable
-              style={[styles.segment, mode === 'signin' && styles.segmentActive]}
-              onPress={() => handleModeChange('signin')}
-            >
-              <Text style={[styles.segmentText, mode === 'signin' && styles.segmentTextActive]}>
-                Sign in
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[styles.segment, mode === 'signup' && styles.segmentActive]}
-              onPress={() => handleModeChange('signup')}
-            >
-              <Text style={[styles.segmentText, mode === 'signup' && styles.segmentTextActive]}>
-                Sign up
-              </Text>
-            </Pressable>
-          </View>
+              <Animated.View style={[styles.card, { opacity: fadeAnim }]}>
+                <View style={styles.segmented}>
+                  <Pressable
+                    style={[styles.segment, mode === 'signin' && styles.segmentActive]}
+                    onPress={() => handleModeChange('signin')}
+                  >
+                    <Text style={[styles.segmentText, mode === 'signin' && styles.segmentTextActive]}>
+                      Sign in
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.segment, mode === 'signup' && styles.segmentActive]}
+                    onPress={() => handleModeChange('signup')}
+                  >
+                    <Text style={[styles.segmentText, mode === 'signup' && styles.segmentTextActive]}>
+                      Sign up
+                    </Text>
+                  </Pressable>
+                </View>
 
-          {mode === 'signup' ? (
-            <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Full name</Text>
-              <TextInput
-                placeholder="Ada Lovelace"
-                placeholderTextColor="#8aa0b7"
-                style={styles.input}
-                value={name}
-                onChangeText={setName}
-                autoCorrect={false}
-                returnKeyType="next"
-              />
-            </View>
-          ) : null}
+                {mode === 'signup' ? (
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.label}>Full name</Text>
+                    <TextInput
+                      placeholder="Ada Lovelace"
+                      placeholderTextColor="#8aa0b7"
+                      style={styles.input}
+                      value={name}
+                      onChangeText={setName}
+                      autoCorrect={false}
+                      returnKeyType="next"
+                    />
+                  </View>
+                ) : null}
 
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Email</Text>
-            <TextInput
-              placeholder="you@aeroface.com"
-              placeholderTextColor="#8aa0b7"
-              style={styles.input}
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              autoCorrect={false}
-              returnKeyType="next"
-            />
-          </View>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Email</Text>
+                  <TextInput
+                    placeholder="you@aeroface.com"
+                    placeholderTextColor="#8aa0b7"
+                    style={styles.input}
+                    value={email}
+                    onChangeText={setEmail}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    autoCorrect={false}
+                    returnKeyType="next"
+                  />
+                </View>
 
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Password</Text>
-            <TextInput
-              placeholder="Minimum 6 characters"
-              placeholderTextColor="#8aa0b7"
-              style={styles.input}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              returnKeyType="done"
-            />
-          </View>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Password</Text>
+                  <TextInput
+                    placeholder="Minimum 6 characters"
+                    placeholderTextColor="#8aa0b7"
+                    style={styles.input}
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry
+                    returnKeyType="done"
+                  />
+                </View>
 
-          {message ? (
-            <View
-              style={[
-                styles.message,
-                message.tone === 'error' ? styles.messageError : styles.messageSuccess,
-              ]}
-            >
-              <Text style={styles.messageText}>{message.text}</Text>
-            </View>
-          ) : null}
+                {message ? (
+                  <View
+                    style={[
+                      styles.message,
+                      message.tone === 'error' ? styles.messageError : styles.messageSuccess,
+                    ]}
+                  >
+                    <Text style={styles.messageText}>{message.text}</Text>
+                  </View>
+                ) : null}
 
-          <Pressable
-            style={[styles.primaryButton, !isValid && styles.primaryButtonDisabled]}
-            onPress={handleSubmit}
-            disabled={!isValid || loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#0b1f3a" />
-            ) : (
-              <Text style={styles.primaryButtonText}>
-                {mode === 'signin' ? 'Continue' : 'Create account'}
-              </Text>
-            )}
-          </Pressable>
+                <Pressable
+                  style={[styles.primaryButton, !isValid && styles.primaryButtonDisabled]}
+                  onPress={handleSubmit}
+                  disabled={!isValid || loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#0b1f3a" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>
+                      {mode === 'signin' ? 'Continue' : 'Create account'}
+                    </Text>
+                  )}
+                </Pressable>
 
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>
-              By continuing you agree to AeroFace privacy and safety standards.
-            </Text>
-          </View>
-        </Animated.View>
+                <View style={styles.footer}>
+                  <Text style={styles.footerText}>
+                    By continuing you agree to AeroFace privacy and safety standards.
+                  </Text>
+                </View>
+              </Animated.View>
 
-        <View style={styles.accentRow}>
-          <View style={[styles.accentDot, { backgroundColor: accent }]} />
-          <Text style={styles.accentText}>
-            {mode === 'signin' ? 'Secure sign in' : 'Verified onboarding'}
-          </Text>
-        </View>
+              <View style={styles.accentRow}>
+                <View style={[styles.accentDot, { backgroundColor: accent }]} />
+                <Text style={styles.accentText}>
+                  {mode === 'signin' ? 'Secure sign in' : 'Verified onboarding'}
+                </Text>
+              </View>
+
+              {/* Lounge Owner Registration Link */}
+              <Pressable
+                style={styles.loungeLink}
+                onPress={() => navigation.navigate('LoungeAuth')}
+              >
+                <View style={styles.loungeLinkRow}>
+                  <Ionicons name="business-outline" size={16} color="#22d3ee" />
+                  <Text style={styles.loungeLinkText}>Register your Lounge →</Text>
+                </View>
+                <Text style={styles.loungeLinkSub}>Partner with AeroFace for premium access management</Text>
+              </Pressable>
             </View>
           </TouchableWithoutFeedback>
         </ScrollView>
@@ -376,5 +397,31 @@ const styles = StyleSheet.create({
     color: '#cbd5f5',
     fontSize: 13,
     fontFamily: 'SpaceGrotesk_500Medium',
+  },
+  loungeLink: {
+    marginHorizontal: 24,
+    marginTop: 20,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    backgroundColor: 'rgba(34, 211, 238, 0.08)',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(34, 211, 238, 0.2)',
+  },
+  loungeLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  loungeLinkText: {
+    color: '#22d3ee',
+    fontSize: 14,
+    fontFamily: 'SpaceGrotesk_700Bold',
+  },
+  loungeLinkSub: {
+    color: '#94a3b8',
+    fontSize: 12,
+    fontFamily: 'SpaceGrotesk_400Regular',
   },
 });

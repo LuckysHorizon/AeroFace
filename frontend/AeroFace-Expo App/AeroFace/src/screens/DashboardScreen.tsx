@@ -30,24 +30,21 @@ export default function DashboardScreen() {
     }
   }, [route.params?.airportCode]);
 
-  const renderScreen = () => {
-    switch (activeNav) {
-      case 'Dashboard':
-        return <HomeScreen navigation={navigation} />;
-      case 'Lounges':
-        return <LoungesScreen initialAirportCode={initialAirportCode} />;
-      case 'Subscriptions':
-        return <SubscriptionsScreen />;
-      case 'Profile':
-        return <ProfileScreen />;
-      default:
-        return <HomeScreen navigation={navigation} />;
-    }
-  };
-
   return (
     <View style={styles.container}>
-      {renderScreen()}
+      {/* All screens stay mounted — inactive ones are hidden via display:'none' */}
+      <View style={[styles.screenLayer, activeNav !== 'Dashboard' && styles.hidden]}>
+        <HomeScreen navigation={navigation} />
+      </View>
+      <View style={[styles.screenLayer, activeNav !== 'Lounges' && styles.hidden]}>
+        <LoungesScreen initialAirportCode={initialAirportCode} />
+      </View>
+      <View style={[styles.screenLayer, activeNav !== 'Subscriptions' && styles.hidden]}>
+        <SubscriptionsScreen />
+      </View>
+      <View style={[styles.screenLayer, activeNav !== 'Profile' && styles.hidden]}>
+        <ProfileScreen />
+      </View>
 
       {/* Floating Bottom Navigation */}
       <View style={styles.navBarContainer}>
@@ -117,6 +114,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F5F7FA',
+  },
+  screenLayer: {
+    flex: 1,
+  },
+  hidden: {
+    display: 'none',
   },
   navBarContainer: {
     position: 'absolute',
