@@ -26,6 +26,8 @@ import {
   PaymentResult,
 } from '../lib/cashfreePayment';
 import CashfreeCheckoutScreen from './CashfreeCheckoutScreen';
+import FaceRegistrationScreen from './FaceRegistrationScreen';
+import { checkFaceStatus } from '../lib/faceApi';
 import { supabase } from '../lib/supabase';
 
 interface UserMembership {
@@ -76,6 +78,11 @@ export default function SubscriptionsScreen() {
   const [showCheckout, setShowCheckout] = useState(false);
   const [subscribing, setSubscribing] = useState<string | null>(null);
 
+  // Face registration state
+  const [showFaceReg, setShowFaceReg] = useState(false);
+  const [faceRegLoungeId, setFaceRegLoungeId] = useState<string | undefined>();
+  const [currentUserId, setCurrentUserId] = useState<string>('');
+
   // Active memberships
   const [memberships, setMemberships] = useState<Map<string, UserMembership>>(new Map());
 
@@ -85,6 +92,10 @@ export default function SubscriptionsScreen() {
     if (hasInit.current) return;
     hasInit.current = true;
     loadData();
+    // Get current user ID for face registration
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) setCurrentUserId(data.user.id);
+    });
   }, []);
 
   async function loadData() {
@@ -210,9 +221,26 @@ export default function SubscriptionsScreen() {
     }
   }
 
-  function handlePaymentSuccess(result: PaymentResult) {
+  async function handlePaymentSuccess(result: PaymentResult) {
     setShowCheckout(false);
     setPaymentOrder(null);
+    clearSubscriptionCache();
+    loadData();
+
+    // Check if user already has face data — if not, prompt registration
+    try {
+      const status = await checkFaceStatus(currentUserId);
+      if (!status.registered) {
+        // User has no face data — open face registration
+        setFaceRegLoungeId(result.lounge_id || undefined);
+        setShowFaceReg(true);
+        return;
+      }
+    } catch {
+      // API not reachable — skip face registration gracefully
+    }
+
+    // User already registered or API unavailable — show success
     Alert.alert(
       '🎉 Subscription Active!',
       `You are now subscribed to ${result.plan_name || 'the plan'}.\nValid until: ${result.end_date
@@ -220,8 +248,6 @@ export default function SubscriptionsScreen() {
         : 'N/A'}`,
       [{ text: 'Great!' }]
     );
-    clearSubscriptionCache();
-    loadData();
   }
 
   function handlePaymentCancel() {
@@ -563,6 +589,30 @@ export default function SubscriptionsScreen() {
               onCancel={handlePaymentCancel}
             />
           )}
+        </Modal>
+
+        {/* ── Face Registration Modal ── */}
+        <Modal visible={showFaceReg} animationType="slide" presentationStyle="fullScreen">
+          <FaceRegistrationScreen
+            userId={currentUserId}
+            loungeId={faceRegLoungeId}
+            onComplete={() => {
+              setShowFaceReg(false);
+              Alert.alert(
+                '🎉 All Set!',
+                'Subscription activated and face registered for lounge access.',
+                [{ text: 'Great!' }]
+              );
+            }}
+            onCancel={() => {
+              setShowFaceReg(false);
+              Alert.alert(
+                '✅ Subscription Active',
+                'You can register your face later from your Profile.',
+                [{ text: 'OK' }]
+              );
+            }}
+          />
         </Modal>
       </LinearGradient>
     </View>

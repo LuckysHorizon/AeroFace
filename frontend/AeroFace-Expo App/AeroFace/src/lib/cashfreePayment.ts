@@ -24,6 +24,7 @@ export interface PaymentResult {
     membership_id?: string;
     transaction_id?: string;
     plan_name?: string;
+    lounge_id?: string;
     end_date?: string;
     error?: string;
     message?: string;
