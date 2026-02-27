@@ -1,3 +1,25 @@
+# Core dependencies for face detection and embedding
+deepface
+opencv-python
+tf-keras
+tensorflow
+# Optional: If you use dotenv or psycopg2 elsewhere in your project
+python-dotenv
+psycopg2-binary
+python-dotenv
+psycopg2-binary
 psycopg2-binary
 python-dotenv
 opencv-python
+# Main dependencies for face recognition and database workflow
+numpy
+psycopg2
+python-dotenv
+DeepFace
+uuid
+# If you use Flask or FastAPI, add:
+# flask
+# fastapi
+# uvicorn
+# If you use Jupyter:
+# jupyter
