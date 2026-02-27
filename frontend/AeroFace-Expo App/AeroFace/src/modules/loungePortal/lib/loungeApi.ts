@@ -35,6 +35,7 @@ export interface Membership {
     id: string;
     lounge_id: string;
     user_id: string;
+    plan_id: string | null;
     user_email: string | null;
     user_name: string | null;
     membership_type: 'standard' | 'premium' | 'vip';
@@ -43,6 +44,7 @@ export interface Membership {
     end_date: string | null;
     created_at: string;
     updated_at: string;
+    plan_name?: string;
 }
 
 export interface Transaction {
@@ -179,7 +181,7 @@ export async function getMembers(loungeId: string): Promise<Membership[]> {
     return cachedFetch(CK.members(loungeId), async () => {
         const { data, error } = await supabase
             .from('lounge_memberships')
-            .select('*')
+            .select('*, lounge_plans(name)')
             .eq('lounge_id', loungeId)
             .order('created_at', { ascending: false });
 
@@ -187,7 +189,12 @@ export async function getMembers(loungeId: string): Promise<Membership[]> {
             console.error('[loungeApi] getMembers error:', error);
             throw error;
         }
-        return data || [];
+        // Flatten plan name from join
+        return (data || []).map((m: any) => ({
+            ...m,
+            plan_name: m.lounge_plans?.name || null,
+            lounge_plans: undefined,
+        }));
     });
 }
 
@@ -229,7 +236,8 @@ export async function addMember(member: {
 
 export async function updateMemberStatus(
     membershipId: string,
-    status: 'active' | 'revoked' | 'expired'
+    status: 'active' | 'revoked' | 'expired',
+    loungeId?: string
 ): Promise<void> {
     if (!canWrite('update-member')) throw new Error('Please wait a moment before trying again.');
 
@@ -243,10 +251,11 @@ export async function updateMemberStatus(
         throw error;
     }
 
-    markWrite('update-member');
+    const keys = loungeId ? [CK.members(loungeId), CK.stats(loungeId)] : undefined;
+    markWrite('update-member', keys);
 }
 
-export async function deleteMember(membershipId: string): Promise<void> {
+export async function deleteMember(membershipId: string, loungeId?: string): Promise<void> {
     if (!canWrite('delete-member')) throw new Error('Please wait a moment before trying again.');
 
     const { error } = await supabase
@@ -259,7 +268,8 @@ export async function deleteMember(membershipId: string): Promise<void> {
         throw error;
     }
 
-    markWrite('delete-member');
+    const keys = loungeId ? [CK.members(loungeId), CK.stats(loungeId)] : undefined;
+    markWrite('delete-member', keys);
 }
 
 // ── Transactions / Revenue ────────────────────────────────────────
@@ -333,7 +343,7 @@ export async function addTransaction(transaction: {
     return data;
 }
 
-export async function deleteTransaction(transactionId: string): Promise<void> {
+export async function deleteTransaction(transactionId: string, loungeId?: string): Promise<void> {
     if (!canWrite('del-tx')) throw new Error('Please wait a moment before trying again.');
 
     const { error } = await supabase
@@ -346,7 +356,14 @@ export async function deleteTransaction(transactionId: string): Promise<void> {
         throw error;
     }
 
-    markWrite('del-tx');
+    const keys = loungeId ? [
+        CK.transactions(loungeId, 'today'),
+        CK.transactions(loungeId, 'week'),
+        CK.transactions(loungeId, 'month'),
+        CK.transactions(loungeId, 'all'),
+        CK.stats(loungeId),
+    ] : undefined;
+    markWrite('del-tx', keys);
 }
 
 // ── Stats (RPC) ───────────────────────────────────────────────────

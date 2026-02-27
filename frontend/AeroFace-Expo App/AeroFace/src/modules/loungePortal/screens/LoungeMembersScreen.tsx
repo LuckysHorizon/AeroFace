@@ -77,7 +77,7 @@ export default function LoungeMembersScreen() {
     const handleStatusChange = async (membershipId: string, status: 'active' | 'revoked') => {
         try {
             setActionLoading(membershipId);
-            await updateMemberStatus(membershipId, status);
+            await updateMemberStatus(membershipId, status, loungeId || undefined);
             setMembers(prev =>
                 prev.map(m => m.id === membershipId ? { ...m, status } : m)
             );
@@ -100,7 +100,7 @@ export default function LoungeMembersScreen() {
                     onPress: async () => {
                         try {
                             setActionLoading(membershipId);
-                            await deleteMember(membershipId);
+                            await deleteMember(membershipId, loungeId || undefined);
                             setMembers(prev => prev.filter(m => m.id !== membershipId));
                         } catch (e: any) {
                             console.error('[Members] Delete failed:', e);
@@ -168,12 +168,26 @@ export default function LoungeMembersScreen() {
                         <Ionicons name="card-outline" size={13} color="#6B7280" />
                         <Text style={s.metaText}>{TYPE_LABELS[item.membership_type] || item.membership_type}</Text>
                     </View>
+                    {item.plan_name && (
+                        <View style={[s.metaChip, { backgroundColor: '#EEF2FF' }]}>
+                            <Ionicons name="pricetag-outline" size={13} color="#4F46E5" />
+                            <Text style={[s.metaText, { color: '#4F46E5' }]}>{item.plan_name}</Text>
+                        </View>
+                    )}
                     <View style={s.metaChip}>
                         <Ionicons name="calendar-outline" size={13} color="#6B7280" />
                         <Text style={s.metaText}>
                             Since {new Date(item.start_date).toLocaleDateString()}
                         </Text>
                     </View>
+                    {item.end_date && (
+                        <View style={s.metaChip}>
+                            <Ionicons name="time-outline" size={13} color="#6B7280" />
+                            <Text style={s.metaText}>
+                                Until {new Date(item.end_date).toLocaleDateString()}
+                            </Text>
+                        </View>
+                    )}
                 </View>
 
                 {/* Action Buttons */}

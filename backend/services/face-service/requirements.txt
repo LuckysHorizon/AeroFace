@@ -1,54 +1,11 @@
-# Face detection and embeddings
-face_recognition
+dlib-bin
+face_recognition --no-deps
+face-recognition-models
 opencv-python
-# =====================
-# Python virtual envs
-# =====================
-venv/
-.venv/
-venv311/
-
-# =====================
-# Python cache
-# =====================
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# =====================
-# Environment variables
-# =====================
-.env
-.env.*
-
-# =====================
-# Node / Frontend
-# =====================
-node_modules/
-npm-debug.log*
-yarn-error.log*
-
-# =====================
-# Expo / React Native
-# =====================
-.expo/
-dist/
-build/
-
-# =====================
-# OS junk
-# =====================
-.DS_Store
-Thumbs.db
-
-# =====================
-# IDEs
-# =====================
-.vscode/
-.idea/
-
-# =====================
-# Logs
-# =====================
-*.log
+numpy
+Pillow
+click
+fastapi
+uvicorn
+python-dotenv
+supabase

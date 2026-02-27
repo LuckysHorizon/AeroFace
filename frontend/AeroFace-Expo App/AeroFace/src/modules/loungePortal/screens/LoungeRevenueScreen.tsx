@@ -129,7 +129,7 @@ export default function LoungeRevenueScreen() {
                     style: 'destructive',
                     onPress: async () => {
                         try {
-                            await deleteTransaction(txId);
+                            await deleteTransaction(txId, loungeId || undefined);
                             setTransactions(prev => prev.filter(t => t.id !== txId));
                         } catch (e: any) {
                             Alert.alert('Error', e.message || 'Failed to delete');
