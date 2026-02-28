@@ -211,6 +211,7 @@ export default function SubscriptionsScreen() {
   async function handleSubscribe(plan: LoungePlanPublic, loungeId: string) {
     try {
       setSubscribing(plan.id);
+      setFaceRegLoungeId(loungeId);  // Save for face registration after payment
       const order = await createPaymentOrder(plan.id, loungeId);
       setPaymentOrder(order);
       setShowCheckout(true);
@@ -232,7 +233,7 @@ export default function SubscriptionsScreen() {
       const status = await checkFaceStatus(currentUserId);
       if (!status.registered) {
         // User has no face data — open face registration
-        setFaceRegLoungeId(result.lounge_id || undefined);
+        // faceRegLoungeId was already set in handleSubscribe
         setShowFaceReg(true);
         return;
       }

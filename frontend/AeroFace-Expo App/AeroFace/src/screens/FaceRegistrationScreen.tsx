@@ -63,47 +63,56 @@ export default function FaceRegistrationScreen({ userId, loungeId, onComplete, o
         setState('capturing');
         setCountdown(3);
 
+        const capturedImages: string[] = [];
         let count = 3;
-        const timer = setInterval(() => {
+
+        // Take a photo every second during the countdown
+        const timer = setInterval(async () => {
+            try {
+                if (cameraRef.current) {
+                    const photo = await cameraRef.current.takePictureAsync({
+                        quality: 0.8,
+                        base64: false,
+                    });
+                    if (photo?.uri) {
+                        const manipulated = await manipulateAsync(
+                            photo.uri,
+                            [{ resize: { width: 640 } }],
+                            { compress: 0.8, format: SaveFormat.JPEG, base64: true },
+                        );
+                        if (manipulated.base64) {
+                            capturedImages.push(manipulated.base64);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to capture intermediate frame', e);
+            }
+
             count -= 1;
             setCountdown(count);
+
             if (count <= 0) {
                 clearInterval(timer);
-                captureAndUpload();
+                uploadMultipleShots(capturedImages);
             }
         }, 1000);
     }, []);
 
-    const captureAndUpload = async () => {
+    const uploadMultipleShots = async (images: string[]) => {
         try {
-            if (!cameraRef.current) {
-                throw new Error('Camera not ready');
+            if (images.length === 0) {
+                throw new Error('No valid photos captured');
             }
-
-            // Take photo
-            const photo = await cameraRef.current.takePictureAsync({
-                quality: 0.8,
-                base64: false,
-            });
-
-            if (!photo?.uri) throw new Error('Photo capture failed');
 
             setState('uploading');
 
-            // Resize & compress to base64
-            const manipulated = await manipulateAsync(
-                photo.uri,
-                [{ resize: { width: 640 } }],
-                { compress: 0.8, format: SaveFormat.JPEG, base64: true },
-            );
-
-            if (!manipulated.base64) throw new Error('Image processing failed');
-
-            // Send to FastAPI
+            // Send to FastAPI as multi-shot request
             const result: RegisterResponse = await registerFace(
-                manipulated.base64,
+                null,
                 userId,
                 loungeId,
+                images,
             );
 
             if (result.success) {

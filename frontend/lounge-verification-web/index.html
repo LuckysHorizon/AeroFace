@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AeroFace — Lounge Verification</title>
+    <meta name="description" content="AeroFace Lounge Verification Portal — Verify members using facial recognition">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <!-- ── LOGIN SCREEN ─────────────────────────────── -->
+    <div id="login-screen" class="screen active">
+        <div class="login-bg">
+            <div class="login-card">
+                <div class="login-logo">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#60A5FA" stroke-width="1.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M9 3H5a2 2 0 0 0-2 2v4" />
+                        <path d="M15 3h4a2 2 0 0 1 2 2v4" />
+                        <path d="M9 21H5a2 2 0 0 1-2-2v-4" />
+                        <path d="M15 21h4a2 2 0 0 0 2-2v-4" />
+                        <circle cx="12" cy="10" r="3" />
+                        <path d="M7 17s1.5-3 5-3 5 3 5 3" />
+                    </svg>
+                </div>
+                <h1 class="login-title">AeroFace</h1>
+                <p class="login-subtitle">Lounge Verification Portal</p>
+
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="email" placeholder="lounge@aeroface.com" autocomplete="email">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="password" placeholder="••••••••" autocomplete="current-password">
+                </div>
+
+                <div id="login-error" class="error-box hidden"></div>
+
+                <button id="login-btn" class="btn-primary">
+                    <span>Sign In</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── VERIFICATION SCREEN ──────────────────────── -->
+    <div id="verify-screen" class="screen">
+        <!-- Top Bar -->
+        <header class="topbar">
+            <div class="topbar-left">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#60A5FA" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 3H5a2 2 0 0 0-2 2v4" />
+                    <path d="M15 3h4a2 2 0 0 1 2 2v4" />
+                    <path d="M9 21H5a2 2 0 0 1-2-2v-4" />
+                    <path d="M15 21h4a2 2 0 0 0 2-2v-4" />
+                </svg>
+                <div>
+                    <h2 class="topbar-title">AeroFace</h2>
+                    <p class="topbar-lounge" id="lounge-name">Verification Portal</p>
+                </div>
+            </div>
+            <div class="topbar-right">
+                <div class="status-dot" id="api-status"></div>
+                <span class="status-text" id="api-status-text">Connecting…</span>
+                <button class="btn-ghost" id="logout-btn">Sign Out</button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="verify-main">
+            <!-- Camera Panel -->
+            <div class="camera-panel">
+                <div class="camera-wrapper">
+                    <video id="camera-feed" autoplay playsinline muted></video>
+                    <canvas id="capture-canvas" class="hidden"></canvas>
+
+                    <!-- Scanning overlay -->
+                    <div class="scan-overlay" id="scan-overlay">
+                        <div class="scan-frame">
+                            <div class="scan-corner tl"></div>
+                            <div class="scan-corner tr"></div>
+                            <div class="scan-corner bl"></div>
+                            <div class="scan-corner br"></div>
+                        </div>
+                    </div>
+
+                    <!-- Result overlay -->
+                    <div class="result-overlay hidden" id="result-overlay">
+                        <div class="result-card" id="result-card">
+                            <div class="result-icon" id="result-icon"></div>
+                            <h3 id="result-title"></h3>
+                            <p id="result-detail"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="camera-controls">
+                    <button class="btn-verify" id="verify-btn">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <circle cx="12" cy="12" r="10" />
+                            <path d="m9 12 2 2 4-4" />
+                        </svg>
+                        <span>Verify Face</span>
+                    </button>
+                    <button class="btn-secondary" id="auto-toggle">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path
+                                d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48 2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48 2.83-2.83" />
+                        </svg>
+                        <span>Auto Scan: OFF</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Results Panel -->
+            <div class="results-panel">
+                <h3 class="panel-title">Verification Log</h3>
+                <div class="log-list" id="log-list">
+                    <div class="log-empty">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#4B5563" stroke-width="1.5">
+                            <path d="M9 3H5a2 2 0 0 0-2 2v4" />
+                            <path d="M15 3h4a2 2 0 0 1 2 2v4" />
+                            <path d="M9 21H5a2 2 0 0 1-2-2v-4" />
+                            <path d="M15 21h4a2 2 0 0 0 2-2v-4" />
+                            <circle cx="12" cy="10" r="3" />
+                            <path d="M7 17s1.5-3 5-3 5 3 5 3" />
+                        </svg>
+                        <p>No verifications yet</p>
+                        <span>Position a member in front of the camera and tap "Verify Face"</span>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>

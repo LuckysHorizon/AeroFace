@@ -43,15 +43,17 @@ export interface VerifyResponse {
  * Sends a base64 JPEG to the FastAPI /register endpoint.
  */
 export async function registerFace(
-    imageBase64: string,
+    imageBase64: string | null,
     userId: string,
     loungeId?: string,
+    imagesBase64?: string[],
 ): Promise<RegisterResponse> {
     const res = await fetch(`${FACE_API_URL}/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             image_base64: imageBase64,
+            images_base64: imagesBase64,
             user_id: userId,
             lounge_id: loungeId ?? null,
         }),

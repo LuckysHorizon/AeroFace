@@ -21,8 +21,9 @@ const inflightRequests = new Map<string, Promise<any>>();
 // ── Read Cache ────────────────────────────────────────────────────
 
 /**
- * Return cached data or call fetchFn. Deduplicates concurrent requests
- * and rate-limits repeated fetches to the same key.
+ * Return cached data or call fetchFn. Deduplicates concurrent requests,
+ * rate-limits repeated fetches, retries on transient errors, and returns
+ * stale data when the network is down.
  */
 export async function cachedFetch<T>(
     key: string,
@@ -31,7 +32,6 @@ export async function cachedFetch<T>(
     // 1. Return from cache if fresh
     const entry = cache.get(key);
     if (entry && Date.now() - entry.timestamp < CACHE_TTL_MS) {
-        console.log('[PortalCache] HIT:', key);
         return entry.data as T;
     }
 
@@ -39,7 +39,6 @@ export async function cachedFetch<T>(
     const lastFetch = lastFetchTime.get(key);
     if (lastFetch && Date.now() - lastFetch < MIN_FETCH_INTERVAL_MS) {
         if (entry) {
-            console.log('[PortalCache] RATE_LIMITED (stale):', key);
             return entry.data as T;
         }
     }
@@ -47,17 +46,24 @@ export async function cachedFetch<T>(
     // 3. Deduplicate in-flight requests
     const inflight = inflightRequests.get(key);
     if (inflight) {
-        console.log('[PortalCache] DEDUP:', key);
         return inflight as Promise<T>;
     }
 
-    // 4. Fresh fetch
-    console.log('[PortalCache] MISS:', key);
-    const promise = fetchFn()
+    // 4. Fresh fetch with retry + stale-on-error
+    const promise = fetchWithRetry(fetchFn, 2, 1500)
         .then((data) => {
             cache.set(key, { data, timestamp: Date.now() });
             lastFetchTime.set(key, Date.now());
             return data;
+        })
+        .catch((err) => {
+            // If we have stale data, return it instead of crashing
+            if (entry) {
+                console.warn('[PortalCache] STALE_FALLBACK:', key);
+                return entry.data as T;
+            }
+            // No stale data — re-throw with a clean message
+            throw new Error(sanitizeError(err));
         })
         .finally(() => {
             inflightRequests.delete(key);
@@ -65,6 +71,48 @@ export async function cachedFetch<T>(
 
     inflightRequests.set(key, promise);
     return promise;
+}
+
+/**
+ * Retry a fetch function up to `retries` times with exponential-ish delay.
+ */
+async function fetchWithRetry<T>(
+    fn: () => Promise<T>,
+    retries: number,
+    delayMs: number,
+): Promise<T> {
+    try {
+        return await fn();
+    } catch (err) {
+        if (retries <= 0) throw err;
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        return fetchWithRetry(fn, retries - 1, delayMs * 1.5);
+    }
+}
+
+/**
+ * Strip HTML and map common server errors to user-friendly messages.
+ */
+export function sanitizeError(err: any): string {
+    const raw: string = err?.message || err?.toString?.() || 'Unknown error';
+
+    // Detect HTML responses (Cloudflare error pages, 5xx, etc.)
+    if (raw.includes('<!DOCTYPE') || raw.includes('<html')) {
+        if (raw.includes('525')) return 'Server connection issue (SSL). Please try again in a moment.';
+        if (raw.includes('502')) return 'Server temporarily unavailable. Please try again.';
+        if (raw.includes('503')) return 'Service is down for maintenance. Please try again later.';
+        if (raw.includes('524')) return 'Request timed out. Please try again.';
+        return 'Server is temporarily unavailable. Please pull down to refresh.';
+    }
+
+    // Detect network-level failures
+    if (raw.includes('Network request failed') || raw.includes('network'))
+        return 'No internet connection. Please check your network.';
+    if (raw.includes('timeout') || raw.includes('Timeout'))
+        return 'Request timed out. Please try again.';
+
+    // Return the original message if it's already clean
+    return raw.length > 200 ? raw.slice(0, 150) + '…' : raw;
 }
 
 // ── Write Rate Limiting ───────────────────────────────────────────
