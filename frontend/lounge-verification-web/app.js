@@ -155,10 +155,15 @@ async function captureAndVerify() {
     try {
         var imageBase64 = captureFrame();
 
+        var payload = { image_base64: imageBase64 };
+        if (loungeData && loungeData.id) {
+            payload.lounge_id = loungeData.id;
+        }
+
         var res = await fetch(FACE_API_URL + '/verify', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image_base64: imageBase64 }),
+            body: JSON.stringify(payload),
         });
 
         if (!res.ok) {

@@ -70,6 +70,17 @@ export interface LoungeStats {
     total_transactions: number;
 }
 
+export interface LoungeVisit {
+    id: string;
+    lounge_id: string;
+    user_id: string;
+    in_time: string;
+    out_time: string | null;
+    created_at: string;
+    user_name?: string;
+    user_email?: string;
+}
+
 export interface LoungePlan {
     id: string;
     lounge_id: string;
@@ -270,6 +281,36 @@ export async function deleteMember(membershipId: string, loungeId?: string): Pro
 
     const keys = loungeId ? [CK.members(loungeId), CK.stats(loungeId)] : undefined;
     markWrite('delete-member', keys);
+}
+
+// ── Visits ────────────────────────────────────────────────────────
+
+export async function getVisits(loungeId: string): Promise<LoungeVisit[]> {
+    return cachedFetch(CK.visits(loungeId), async () => {
+        const { data, error } = await supabase
+            .from('lounge_visits')
+            .select('*')
+            .eq('lounge_id', loungeId)
+            .order('in_time', { ascending: false })
+            .limit(50);
+
+        if (error) {
+            console.error('[loungeApi] getVisits error:', error);
+            throw error;
+        }
+
+        // Fetch members to attach names
+        const members = await getMembers(loungeId);
+
+        return (data || []).map((v: any) => {
+            const member = members.find(m => m.user_id === v.user_id);
+            return {
+                ...v,
+                user_name: member?.user_name || v.user_name || 'Unknown User',
+                user_email: member?.user_email || v.user_email || 'Unknown Email',
+            };
+        });
+    });
 }
 
 // ── Transactions / Revenue ────────────────────────────────────────

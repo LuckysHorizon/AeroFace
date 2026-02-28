@@ -102,10 +102,10 @@ $apiJob = Start-Process -FilePath "powershell" -ArgumentList @(
 Start-Sleep -Seconds 3
 
 # Wait for API to be ready
-Write-Step "Waiting for API to load model (this may take 30-60s)..."
+Write-Step "Waiting for API to load model (this may take 60-120s)..."
 
 $apiReady = $false
-for ($i = 0; $i -lt 30; $i++) {
+for ($i = 0; $i -lt 60; $i++) {
     try {
         $response = Invoke-RestMethod -Uri "http://localhost:$API_PORT/health" -TimeoutSec 2 -ErrorAction Stop
         if ($response.status -eq "ok") {

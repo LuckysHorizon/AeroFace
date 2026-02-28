@@ -175,4 +175,5 @@ export const CK = {
     transactions: (loungeId: string, period: string) => `portal:tx:${loungeId}:${period}`,
     plans: (loungeId: string) => `portal:plans:${loungeId}`,
     stats: (loungeId: string) => `portal:stats:${loungeId}`,
+    visits: (loungeId: string) => `portal:visits:${loungeId}`,
 } as const;

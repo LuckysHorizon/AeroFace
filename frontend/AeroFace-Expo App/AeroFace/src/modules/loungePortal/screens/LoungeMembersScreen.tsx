@@ -12,15 +12,19 @@ import {
     TextInput,
     View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
     getOwnerLounge,
     getMembers,
+    getVisits, // Added getVisits
     addMember,
     updateMemberStatus,
     deleteMember,
     Membership,
+    LoungePlan, // Added LoungePlan
+    LoungeVisit, // Added LoungeVisit
 } from '../lib/loungeApi';
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
@@ -40,6 +44,8 @@ const MEMBERSHIP_TYPES: ('standard' | 'premium' | 'vip')[] = ['standard', 'premi
 
 export default function LoungeMembersScreen() {
     const [members, setMembers] = useState<Membership[]>([]);
+    const [visits, setVisits] = useState<LoungeVisit[]>([]);
+    const [activeTab, setActiveTab] = useState<'members' | 'visits'>('members');
     const [loungeId, setLoungeId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -62,8 +68,12 @@ export default function LoungeMembersScreen() {
             const lounge = await getOwnerLounge();
             if (!lounge) { setError('No lounge registered.'); return; }
             setLoungeId(lounge.id);
-            const data = await getMembers(lounge.id);
-            setMembers(data);
+            const [memData, visData] = await Promise.all([
+                getMembers(lounge.id),
+                getVisits(lounge.id)
+            ]);
+            setMembers(memData);
+            setVisits(visData);
         } catch (e: any) {
             setError(e.message || 'Failed to load members');
         } finally {
@@ -247,131 +257,210 @@ export default function LoungeMembersScreen() {
         );
     }
 
+    function renderVisit({ item }: { item: LoungeVisit }) {
+        const inTime = new Date(item.in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const outTime = item.out_time ? new Date(item.out_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Inside';
+        const isInside = !item.out_time;
+
+        return (
+            <View style={s.memberCard}>
+                <View style={s.memberHeader}>
+                    <View style={s.avatarCircle}>
+                        <Text style={s.avatarText}>
+                            {(item.user_name || item.user_email || '?')[0].toUpperCase()}
+                        </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                        <Text style={s.memberName} numberOfLines={1}>
+                            {item.user_name || 'Unknown User'}
+                        </Text>
+                        <Text style={s.memberEmail} numberOfLines={1}>
+                            {new Date(item.in_time).toLocaleDateString()}
+                        </Text>
+                    </View>
+                    <View style={[s.statusBadge, { backgroundColor: isInside ? '#DCFCE7' : '#F3F4F6' }]}>
+                        <Text style={[s.statusText, { color: isInside ? '#15803D' : '#6B7280' }]}>
+                            {isInside ? 'Active' : 'Departed'}
+                        </Text>
+                    </View>
+                </View>
+                <View style={[s.memberMeta, { gap: 12 }]}>
+                    <View style={s.metaChip}>
+                        <Ionicons name="log-in-outline" size={14} color="#10B981" />
+                        <Text style={s.metaText}>In: {inTime}</Text>
+                    </View>
+                    <View style={s.metaChip}>
+                        <Ionicons name="log-out-outline" size={14} color={isInside ? "#9CA3AF" : "#EF4444"} />
+                        <Text style={s.metaText}>Out: {outTime}</Text>
+                    </View>
+                </View>
+            </View>
+        );
+    }
+
     return (
         <View style={s.container}>
             <LinearGradient colors={['#ECFDF5', '#F0FDF4', '#FFFFFF']} style={s.gradient}>
-                <View style={s.headerWrap}>
-                    <View style={s.headerRow}>
-                        <View style={{ flex: 1 }}>
-                            <Text style={s.kicker}>MEMBERSHIP MANAGEMENT</Text>
-                            <Text style={s.title}>Members</Text>
-                            <Text style={s.subtitle}>
-                                {members.length > 0
-                                    ? `${members.length} member${members.length !== 1 ? 's' : ''} registered`
-                                    : 'Manage your lounge memberships'}
-                            </Text>
+                <SafeAreaView>
+                    <View style={s.headerWrap}>
+                        <View style={s.headerRow}>
+                            <View style={{ flex: 1 }}>
+                                <Text style={s.kicker}>MEMBERSHIP MANAGEMENT</Text>
+                                <Text style={s.title}>Portal</Text>
+                                <Text style={s.subtitle}>
+                                    {members.length} members | {visits.filter(v => !v.out_time).length} active inside
+                                </Text>
+                            </View>
+                            <Pressable style={s.addFab} onPress={() => setShowAddModal(true)}>
+                                <Ionicons name="add" size={24} color="#FFF" />
+                            </Pressable>
                         </View>
-                        <Pressable style={s.addFab} onPress={() => setShowAddModal(true)}>
-                            <Ionicons name="add" size={24} color="#FFFFFF" />
-                        </Pressable>
-                    </View>
-                </View>
 
-                {loading && (
-                    <View style={s.center}>
-                        <ActivityIndicator size="large" color="#10B981" />
-                        <Text style={s.centerText}>Loading members...</Text>
-                    </View>
-                )}
-
-                {error && !loading && (
-                    <View style={s.center}>
-                        <Ionicons name="alert-circle-outline" size={48} color="#DC2626" />
-                        <Text style={s.centerText}>{error}</Text>
-                    </View>
-                )}
-
-                {!loading && !error && members.length === 0 && (
-                    <View style={s.center}>
-                        <View style={s.emptyIcon}>
-                            <Ionicons name="people-outline" size={48} color="#10B981" />
-                        </View>
-                        <Text style={s.emptyTitle}>No members yet</Text>
-                        <Text style={s.emptySubtitle}>
-                            Tap '+' to add your first member.
-                        </Text>
-                    </View>
-                )}
-
-                {!loading && !error && members.length > 0 && (
-                    <FlatList
-                        data={members}
-                        keyExtractor={item => item.id}
-                        renderItem={renderMember}
-                        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120 }}
-                        showsVerticalScrollIndicator={false}
-                        refreshControl={
-                            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#10B981" colors={['#10B981']} />
-                        }
-                    />
-                )}
-
-                {/* ── Add Member Modal ── */}
-                <Modal visible={showAddModal} animationType="slide" transparent>
-                    <View style={s.modalOverlay}>
-                        <View style={s.modalCard}>
-                            <View style={s.modalHeader}>
-                                <Text style={s.modalTitle}>Add Member</Text>
-                                <Pressable onPress={() => setShowAddModal(false)}>
-                                    <Ionicons name="close" size={24} color="#6B7280" />
-                                </Pressable>
-                            </View>
-
-                            <View style={s.fieldGroup}>
-                                <Text style={s.label}>Full Name</Text>
-                                <TextInput
-                                    style={s.input}
-                                    value={newName}
-                                    onChangeText={setNewName}
-                                    placeholder="John Doe"
-                                    placeholderTextColor="#9CA3AF"
-                                />
-                            </View>
-
-                            <View style={s.fieldGroup}>
-                                <Text style={s.label}>Email</Text>
-                                <TextInput
-                                    style={s.input}
-                                    value={newEmail}
-                                    onChangeText={setNewEmail}
-                                    placeholder="john@example.com"
-                                    placeholderTextColor="#9CA3AF"
-                                    keyboardType="email-address"
-                                    autoCapitalize="none"
-                                />
-                            </View>
-
-                            <View style={s.fieldGroup}>
-                                <Text style={s.label}>Membership Type</Text>
-                                <View style={s.typeRow}>
-                                    {MEMBERSHIP_TYPES.map(t => (
-                                        <Pressable
-                                            key={t}
-                                            style={[s.typeChip, newType === t && s.typeChipActive]}
-                                            onPress={() => setNewType(t)}
-                                        >
-                                            <Text style={[s.typeChipText, newType === t && s.typeChipTextActive]}>
-                                                {TYPE_LABELS[t]}
-                                            </Text>
-                                        </Pressable>
-                                    ))}
-                                </View>
-                            </View>
-
+                        <View style={s.tabContainer}>
                             <Pressable
-                                style={[s.modalSaveBtn, addLoading && { opacity: 0.6 }]}
-                                onPress={handleAddMember}
-                                disabled={addLoading || !newName.trim() || !newEmail.trim()}
+                                style={[s.tab, activeTab === 'members' && s.activeTab]}
+                                onPress={() => setActiveTab('members')}
                             >
-                                {addLoading ? (
-                                    <ActivityIndicator color="#FFFFFF" />
-                                ) : (
-                                    <Text style={s.modalSaveBtnText}>Add Member</Text>
-                                )}
+                                <Text style={[s.tabText, activeTab === 'members' && s.activeTabText]}>Members</Text>
+                            </Pressable>
+                            <Pressable
+                                style={[s.tab, activeTab === 'visits' && s.activeTab]}
+                                onPress={() => setActiveTab('visits')}
+                            >
+                                <Text style={[s.tabText, activeTab === 'visits' && s.activeTabText]}>Visits Log</Text>
                             </Pressable>
                         </View>
                     </View>
-                </Modal>
+                </SafeAreaView>
+
+                <View style={s.listContainer}>
+                    {loading && (
+                        <View style={s.center}>
+                            <ActivityIndicator size="large" color="#10B981" />
+                            <Text style={s.centerText}>Loading data...</Text>
+                        </View>
+                    )}
+
+                    {error && !loading && (
+                        <View style={s.center}>
+                            <Ionicons name="alert-circle-outline" size={48} color="#DC2626" />
+                            <Text style={s.centerText}>{error}</Text>
+                        </View>
+                    )}
+
+                    {!loading && !error && activeTab === 'members' && members.length === 0 && (
+                        <View style={s.center}>
+                            <View style={s.emptyIcon}>
+                                <Ionicons name="people-outline" size={48} color="#10B981" />
+                            </View>
+                            <Text style={s.emptyTitle}>No members yet</Text>
+                            <Text style={s.emptySubtitle}>Tap '+' to add your first member.</Text>
+                        </View>
+                    )}
+
+                    {!loading && !error && activeTab === 'visits' && visits.length === 0 && (
+                        <View style={s.center}>
+                            <View style={s.emptyIcon}>
+                                <Ionicons name="time-outline" size={48} color="#10B981" />
+                            </View>
+                            <Text style={s.emptyTitle}>No visits yet</Text>
+                            <Text style={s.emptySubtitle}>Users checking in using face recognition will appear here.</Text>
+                        </View>
+                    )}
+
+                    {!loading && !error && activeTab === 'members' && members.length > 0 && (
+                        <FlatList
+                            data={members}
+                            keyExtractor={item => item.id}
+                            renderItem={renderMember}
+                            contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120 }}
+                            showsVerticalScrollIndicator={false}
+                            refreshControl={
+                                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#10B981" colors={['#10B981']} />
+                            }
+                        />
+                    )}
+
+                    {!loading && !error && activeTab === 'visits' && visits.length > 0 && (
+                        <FlatList
+                            data={visits}
+                            keyExtractor={item => item.id}
+                            renderItem={renderVisit}
+                            contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120 }}
+                            showsVerticalScrollIndicator={false}
+                            refreshControl={
+                                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#10B981" colors={['#10B981']} />
+                            }
+                        />
+                    )}
+
+                    {/* ── Add Member Modal ── */}
+                    <Modal visible={showAddModal} animationType="slide" transparent>
+                        <View style={s.modalOverlay}>
+                            <View style={s.modalCard}>
+                                <View style={s.modalHeader}>
+                                    <Text style={s.modalTitle}>Add Member</Text>
+                                    <Pressable onPress={() => setShowAddModal(false)}>
+                                        <Ionicons name="close" size={24} color="#6B7280" />
+                                    </Pressable>
+                                </View>
+
+                                <View style={s.fieldGroup}>
+                                    <Text style={s.label}>Full Name</Text>
+                                    <TextInput
+                                        style={s.input}
+                                        value={newName}
+                                        onChangeText={setNewName}
+                                        placeholder="John Doe"
+                                        placeholderTextColor="#9CA3AF"
+                                    />
+                                </View>
+
+                                <View style={s.fieldGroup}>
+                                    <Text style={s.label}>Email</Text>
+                                    <TextInput
+                                        style={s.input}
+                                        value={newEmail}
+                                        onChangeText={setNewEmail}
+                                        placeholder="john@example.com"
+                                        placeholderTextColor="#9CA3AF"
+                                        keyboardType="email-address"
+                                        autoCapitalize="none"
+                                    />
+                                </View>
+
+                                <View style={s.fieldGroup}>
+                                    <Text style={s.label}>Membership Type</Text>
+                                    <View style={s.typeRow}>
+                                        {MEMBERSHIP_TYPES.map(t => (
+                                            <Pressable
+                                                key={t}
+                                                style={[s.typeChip, newType === t && s.typeChipActive]}
+                                                onPress={() => setNewType(t)}
+                                            >
+                                                <Text style={[s.typeChipText, newType === t && s.typeChipTextActive]}>
+                                                    {TYPE_LABELS[t]}
+                                                </Text>
+                                            </Pressable>
+                                        ))}
+                                    </View>
+                                </View>
+
+                                <Pressable
+                                    style={[s.modalSaveBtn, addLoading && { opacity: 0.6 }]}
+                                    onPress={handleAddMember}
+                                    disabled={addLoading || !newName.trim() || !newEmail.trim()}
+                                >
+                                    {addLoading ? (
+                                        <ActivityIndicator color="#FFFFFF" />
+                                    ) : (
+                                        <Text style={s.modalSaveBtnText}>Add Member</Text>
+                                    )}
+                                </Pressable>
+                            </View>
+                        </View>
+                    </Modal>
+                </View>
             </LinearGradient>
         </View>
     );
@@ -381,18 +470,26 @@ const s = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#F0FDF4' },
     gradient: { flex: 1 },
 
-    headerWrap: { paddingTop: Platform.OS === 'ios' ? 60 : 50, paddingHorizontal: 20, paddingBottom: 16 },
+    headerWrap: { paddingTop: 0, paddingHorizontal: 20, paddingBottom: 16 }, // Modified paddingTop
     headerRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
     kicker: { color: '#059669', fontSize: 12, letterSpacing: 2, fontFamily: 'SpaceGrotesk_500Medium', marginBottom: 4 },
     title: { color: '#022c22', fontSize: 28, fontFamily: 'SpaceGrotesk_700Bold' },
     subtitle: { color: '#6B7280', fontSize: 14, fontFamily: 'SpaceGrotesk_400Regular', marginTop: 4 },
 
     addFab: {
-        width: 48, height: 48, borderRadius: 16, backgroundColor: '#059669',
-        alignItems: 'center', justifyContent: 'center', marginTop: 8,
-        shadowColor: '#059669', shadowOffset: { width: 0, height: 4 },
+        width: 48, height: 48, borderRadius: 24, backgroundColor: '#10B981', // Modified borderRadius and backgroundColor
+        alignItems: 'center', justifyContent: 'center',
+        shadowColor: '#10B981', shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3, shadowRadius: 8, elevation: 6,
     },
+
+    tabContainer: { flexDirection: 'row', backgroundColor: '#E4F8EA', borderRadius: 12, padding: 4, marginTop: 20 }, // Added
+    tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10 }, // Added
+    activeTab: { backgroundColor: '#FFFFFF', shadowColor: '#022c22', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 }, // Added
+    tabText: { color: '#6B7280', fontSize: 13, fontFamily: 'SpaceGrotesk_500Medium' }, // Added
+    activeTabText: { color: '#059669', fontFamily: 'SpaceGrotesk_700Bold' },
+
+    listContainer: { flex: 1 },
 
     center: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 12 },
     centerText: { color: '#6B7280', fontSize: 14, fontFamily: 'SpaceGrotesk_400Regular' },
