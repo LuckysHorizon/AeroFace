@@ -48,30 +48,40 @@ CREATE TRIGGER trg_payment_order_updated_at
 -- ── RLS Policies ─────────────────────────────────────────────────
 ALTER TABLE payment_orders ENABLE ROW LEVEL SECURITY;
 
--- Users can read their own orders
-CREATE POLICY "Users read own orders"
-    ON payment_orders FOR SELECT
-    USING (auth.uid() = user_id);
+DO $$ BEGIN
+    -- Users can read their own orders
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Users read own orders') THEN
+        CREATE POLICY "Users read own orders"
+            ON payment_orders FOR SELECT
+            USING (auth.uid() = user_id);
+    END IF;
 
--- Lounge owners can read orders for their lounge
-CREATE POLICY "Owners read lounge orders"
-    ON payment_orders FOR SELECT
-    USING (
-        lounge_id IN (
-            SELECT id FROM lounges WHERE owner_id = auth.uid()
-        )
-    );
+    -- Lounge owners can read orders for their lounge
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Owners read lounge orders') THEN
+        CREATE POLICY "Owners read lounge orders"
+            ON payment_orders FOR SELECT
+            USING (
+                lounge_id IN (
+                    SELECT id FROM lounges WHERE owner_id = auth.uid()
+                )
+            );
+    END IF;
 
--- Service role (Edge Function) can insert orders
-CREATE POLICY "Service can insert orders"
-    ON payment_orders FOR INSERT
-    WITH CHECK (true);
+    -- Service role (Edge Function) can insert orders
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Service can insert orders') THEN
+        CREATE POLICY "Service can insert orders"
+            ON payment_orders FOR INSERT
+            WITH CHECK (true);
+    END IF;
 
--- Service role can update orders
-CREATE POLICY "Service can update orders"
-    ON payment_orders FOR UPDATE
-    USING (true)
-    WITH CHECK (true);
+    -- Service role can update orders
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Service can update orders') THEN
+        CREATE POLICY "Service can update orders"
+            ON payment_orders FOR UPDATE
+            USING (true)
+            WITH CHECK (true);
+    END IF;
+END $$;
 
 
 -- ═══════════════════════════════════════════════════════════════════
